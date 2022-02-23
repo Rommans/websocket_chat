@@ -1,16 +1,26 @@
 {
-  "name": "ajax",
+  "name": "websocket_chat",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
-  "scripts": {
-    "start": "npm i && npm run server",
-    "server": "node ./server/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "author": "",
-  "license": "ISC",
+  "main": ".eslintrc.js",
   "dependencies": {
-    "ws": "^7.5.1"
-  }
+    "gh-pages": "^3.2.3"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Rommans/websocket_chat.git"
+  },
+  "author": "Rommans",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Rommans/websocket_chat/issues"
+  },
+  "homepage": "https://Rommans.github.io/websocket_chat"
 }
