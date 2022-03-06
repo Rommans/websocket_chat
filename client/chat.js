@@ -1,4 +1,4 @@
-const connection = new WebSocket('ws://localhost:8080');
+const connection = new WebSocket('wss://websocket-chat-backend1.glitch.me');
 let username;
 
 connection.onopen = () => {
@@ -30,11 +30,10 @@ connection.onmessage = event => {
 document.querySelector('form').addEventListener('submit', event => {
     event.preventDefault();
     let message = document.querySelector('#message').value;
-    if(message.length > 0){
+    if(message.length && message.trim()){
         let time = new Date().toLocaleTimeString([], {
             hour12: false
         });
-    
         let msg = {
             username: username,
             message: message,
