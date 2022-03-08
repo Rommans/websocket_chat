@@ -25,6 +25,7 @@ connection.onmessage = event => {
         <label class="time">${obj.date}</label>
     `;
     messageContainer.appendChild(el);
+    messageContainer.scrollTop = messageContainer.scrollHeight;
 };
 
 document.querySelector('form').addEventListener('submit', event => {
@@ -56,4 +57,5 @@ const ownMessage = (message) => {
           <label class="time">${time}</label>
       `;
     messageContainer.appendChild(el);
+    messageContainer.scrollTop = messageContainer.scrollHeight;
 }
