@@ -4,7 +4,7 @@ let online = 0;
 
 connection.onopen = () => {
     console.log('connected');
-    username = prompt('Input your name', 'User');
+    username = prompt('Input your name', 'User') || 'Anonymous';
 };
 
 connection.onclose = () => {

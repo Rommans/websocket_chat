@@ -60,6 +60,8 @@ body {
 .my-message_block,.other-message_block {
     margin: 5px;
     color: white;
+    word-break: break-all;
+    width: 80%;
 }
 
 .online {
