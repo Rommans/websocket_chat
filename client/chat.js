@@ -24,9 +24,11 @@ connection.onmessage = event => {
         let el = document.createElement('div');
         el.setAttribute('class', 'other-message_block');
         el.innerHTML = `
-            <label>${obj.username}:</label>
-            <p class="other-message">${obj.message}</p>
-            <label class="time">${obj.date}</label>
+            <div style="width: 80%;">
+                <label>${obj.username}:</label>
+                <p class="other-message">${obj.message}</p>
+                <label class="time">${obj.date}</label>
+            </div>
         `;
         messageContainer.appendChild(el);
     }
@@ -56,9 +58,11 @@ const ownMessage = (message) => {
     let el = document.createElement('div');
     el.setAttribute('class', 'my-message_block');
     el.innerHTML = `
-          <label>${username}:</label>
-          <p class="my-message">${message}</p>
-          <label class="time">${time}</label>
+        <div style="width: 80%;">
+            <label>${username}:</label>
+            <p class="my-message">${message}</p>
+            <label class="time">${time}</label>
+        </div>
       `;
     messageContainer.appendChild(el);
     messageContainer.scrollTop = messageContainer.scrollHeight;
