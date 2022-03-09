@@ -18,7 +18,7 @@ connection.onerror = error => {
 connection.onmessage = event => {
     let obj = JSON.parse(event.data)
     let onlineUsers = document.querySelector('.online');
-    onlineUsers.textContent = `ONLINE ${obj.online}`;
+    onlineUsers.textContent = `${obj.online} ONLINE`;
     if(obj.username != undefined){
         let messageContainer = document.querySelector('#chat');
         let el = document.createElement('div');
