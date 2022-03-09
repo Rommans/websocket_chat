@@ -1,5 +1,6 @@
 const connection = new WebSocket('wss://websocket-chat-backend1.glitch.me');
 let username;
+let online = 0;
 
 connection.onopen = () => {
     console.log('connected');
@@ -16,16 +17,19 @@ connection.onerror = error => {
 
 connection.onmessage = event => {
     let obj = JSON.parse(event.data)
-    let messageContainer = document.querySelector('#chat');
-    let el = document.createElement('div');
-    el.setAttribute('class', 'other-message_block');
-    el.innerHTML = `
-        <label>${obj.username}:</label>
-        <p class="other-message">${obj.message}</p>
-        <label class="time">${obj.date}</label>
-    `;
-    messageContainer.appendChild(el);
-    messageContainer.scrollTop = messageContainer.scrollHeight;
+    let onlineUsers = document.querySelector('.online');
+    onlineUsers.textContent = `ONLINE ${obj.online}`;
+    if(obj.username != undefined){
+        let messageContainer = document.querySelector('#chat');
+        let el = document.createElement('div');
+        el.setAttribute('class', 'other-message_block');
+        el.innerHTML = `
+            <label>${obj.username}:</label>
+            <p class="other-message">${obj.message}</p>
+            <label class="time">${obj.date}</label>
+        `;
+        messageContainer.appendChild(el);
+    }
 };
 
 document.querySelector('form').addEventListener('submit', event => {

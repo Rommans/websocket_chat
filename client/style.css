@@ -4,6 +4,11 @@
     box-sizing: border-box;
 }
 
+body {
+    height: 100vh;
+    display: flex;
+}
+
 .app {
     width: 80%;
     margin: auto;
@@ -55,6 +60,16 @@
 .my-message_block,.other-message_block {
     margin: 5px;
     color: white;
+}
+
+.online {
+    width: 90%;
+    margin: auto;
+    text-align: center;
+    padding: 20px 0;
+    font-family: 'Rowdies', cursive;
+    font-size: 30px;
+    font-weight: 600;
 }
 
 .chat_wrapper {
