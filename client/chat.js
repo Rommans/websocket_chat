@@ -22,15 +22,16 @@ connection.onmessage = event => {
     if(obj.username != undefined){
         let messageContainer = document.querySelector('#chat');
         let el = document.createElement('div');
-        el.setAttribute('class', 'other-message_block');
+        el.setAttribute('class', 'other-message_wrapper');
         el.innerHTML = `
-            <div style="width: 80%;">
+            <div class="other-message_block">
                 <label>${obj.username}:</label>
                 <p class="other-message">${obj.message}</p>
                 <label class="time">${obj.date}</label>
             </div>
         `;
         messageContainer.appendChild(el);
+        messageContainer.scrollTop = messageContainer.scrollHeight;
     }
 };
 
@@ -56,12 +57,14 @@ const ownMessage = (message) => {
     let time = new Date().toLocaleTimeString([], { hour12: false });
     let messageContainer = document.querySelector('#chat');
     let el = document.createElement('div');
-    el.setAttribute('class', 'my-message_block');
+    el.setAttribute('class', 'my-message_wrapper');
     el.innerHTML = `
-        <div style="width: 80%;">
-            <label>${username}:</label>
-            <p class="my-message">${message}</p>
-            <label class="time">${time}</label>
+        <div class="my-message_block">
+            <div>
+                <label>${username}:</label>
+                <p class="my-message">${message}</p>
+                <label class="time">${time}</label>
+            </div>
         </div>
       `;
     messageContainer.appendChild(el);

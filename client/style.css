@@ -53,15 +53,25 @@ body {
     font-size: larger;
 }
 
-.my-message_block {
-    justify-content: flex-end;
-}
-
-.my-message_block,.other-message_block {
+.my-message_wrapper,.other-message_wrapper {
     margin: 5px;
     color: white;
     word-break: break-all;
     display: flex;
+}
+
+.my-message_wrapper {
+    justify-content: flex-end;
+}
+
+.other-message_block, .my-message_block {
+    width: 80%;
+}
+
+.my-message_block {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
 }
 
 .online {
@@ -97,7 +107,7 @@ form {
     padding: 15px;
     border-radius: 15px;
     border: 0;
-    box-shadow: 0px 0px 5px 3px rgb(0 0 0 / 10%);
+    box-shadow: 0px 0px 5px 4px rgb(0 0 0 / 15%);
     outline: none;
     width: 85%;
     flex: 1;
