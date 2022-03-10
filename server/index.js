@@ -1,6 +1,6 @@
 const WebSocket = require('ws');
 
-const wss = new WebSocket.Server();
+const wss = new WebSocket.Server({ port: 8080 });
 
 const users = [];
 const usersOnline = { online: 0 };

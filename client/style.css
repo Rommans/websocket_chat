@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Lato:wght@300&family=Rowdies:wght@300&display=swap');
+
 * {
     margin: 0;
     padding: 0;
@@ -12,7 +14,6 @@ body {
 .app {
     width: 80%;
     margin: auto;
-    padding: 20px 0;
 }
 
 .chat_block {
@@ -45,14 +46,6 @@ body {
     overflow: auto;
 }
 
-.my-message, .other-message {
-    background-color: rgba(0, 0, 0, 0.5);
-    padding: 5px;
-    border-radius: 5px;
-    width: fit-content;
-    font-size: larger;
-}
-
 .my-message_wrapper,.other-message_wrapper {
     margin: 5px;
     color: white;
@@ -65,13 +58,43 @@ body {
 }
 
 .other-message_block, .my-message_block {
-    width: 75%;
+    max-width: 75%;
 }
 
 .my-message_block {
     display: flex;
     flex-direction: column;
     align-items: flex-end;
+}
+
+.right-message, .left-message{
+    background-color: rgba(0,0,0,.5);
+    padding: 10px;
+    border-radius: 15px;
+    display: flex;
+    flex-direction: column;
+    font-family: 'Lato', sans-serif;
+    min-width: 80px;
+}
+
+.right-message {
+    border-bottom-right-radius: 0;
+}
+
+.left-message {
+    border-bottom-left-radius: 0;
+}
+
+.my-message, .other-message {
+    border-radius: 5px;
+    font-size: large;
+    padding: 7px 0;
+    letter-spacing: 0.5px;
+}
+
+.time {
+    font-size: 12px;
+    align-self: flex-end;
 }
 
 .online {
@@ -151,10 +174,12 @@ form {
   transform: translateY(0);
 }
 
-.time {
-    font-size: 12px;
-}
-
 ::-webkit-scrollbar {
     display: none;
+}
+
+@media only screen and (max-width:425px) {
+    .my-message, .other-message {
+        font-size: medium;
+    }
 }

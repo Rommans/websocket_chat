@@ -25,9 +25,11 @@ connection.onmessage = event => {
         el.setAttribute('class', 'other-message_wrapper');
         el.innerHTML = `
             <div class="other-message_block">
-                <label>${obj.username}:</label>
-                <p class="other-message">${obj.message}</p>
-                <label class="time">${obj.date}</label>
+                <div class="left-message">
+                    <label>${obj.username}:</label>
+                    <p class="other-message">${obj.message}</p>
+                    <label class="time">${obj.date}</label>
+                </div>
             </div>
         `;
         messageContainer.appendChild(el);
@@ -60,7 +62,7 @@ const ownMessage = (message) => {
     el.setAttribute('class', 'my-message_wrapper');
     el.innerHTML = `
         <div class="my-message_block">
-            <div>
+            <div class="right-message">
                 <label>${username}:</label>
                 <p class="my-message">${message}</p>
                 <label class="time">${time}</label>
