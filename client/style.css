@@ -49,7 +49,7 @@ body {
 .my-message_wrapper,.other-message_wrapper {
     margin: 5px;
     color: white;
-    word-break: break-all;
+    word-break: break-word;
     display: flex;
 }
 
