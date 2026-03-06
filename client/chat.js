@@ -1,4 +1,4 @@
-const connection = new WebSocket('wss://websocket-chat-backend1.glitch.me');
+const connection = new WebSocket('wss://websocket-chat-s2s0.onrender.com');
 let username;
 let online = 0;
 
