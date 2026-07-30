@@ -55,14 +55,7 @@ npm run build
 
 ### Automatic deploy
 
-Pushes to `main` deploy the client to GitHub Pages through the `Deploy GitHub Pages` workflow.
-
-One-time repo setup in GitHub:
-
-1. Open `Settings` -> `Pages`
-2. Set `Build and deployment` -> `Source` to `GitHub Actions`
-
-After that, every `git push` to `main` rebuilds and publishes the site.
+Pushes to `main` deploy the client to GitHub Pages through the `Deploy GitHub Pages` workflow. It builds `dist/` and pushes it to the `gh-pages` branch, the same way as `npm run deploy`.
 
 ### Manual deploy
 
