@@ -3,26 +3,109 @@
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta
+        http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' ws://localhost:8080 wss://websocket-chat-s2s0.onrender.com; img-src 'self' data:; media-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'"
+    >
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="style.css">
     <title>WS Chat</title>
 </head>
 <body>
-    <div class="app">
-        <p class="online">0 ONLINE</p>
-        <div class="chat_wrapper">
-            <div class="chat_block">
-                <div id="chat"></div>
-            </div>
-        </div>
-        <div class="input_wrapper">
-            <form>
-                <input id="message" placeholder="Message">
-                <button class="submit_btn" type="submit">Send</button>
-              </form>
-        </div>
+    <main class="app">
+        <section class="chat-shell" aria-label="WebSocket chat">
+            <header class="chat-header">
+                <div>
+                    <p class="eyebrow">Live room</p>
+                    <h1>WS Chat</h1>
+                    <p id="roomName" class="room-name">#general</p>
+                </div>
+                <div class="connection-pill" data-status="connecting">
+                    <span class="status-dot" aria-hidden="true"></span>
+                    <span id="connectionStatus">Connecting</span>
+                </div>
+            </header>
 
-    </div>
+            <div class="room-layout">
+                <aside class="sidebar" aria-label="Online users">
+                    <div class="sidebar-header">
+                        <button
+                            id="sidebarToggle"
+                            class="sidebar-toggle"
+                            type="button"
+                            aria-label="Collapse online users panel"
+                            aria-expanded="true"
+                            title="Collapse panel"
+                        >
+                            <span aria-hidden="true"></span>
+                        </button>
+                        <span class="sidebar-title">Online</span>
+                        <strong class="online-count">0</strong>
+                    </div>
+                    <ul id="usersList" class="users-list"></ul>
+                </aside>
+
+                <section class="conversation" aria-label="Messages">
+                    <div id="dropOverlay" class="drop-overlay" hidden>
+                        <span>Drop file to send</span>
+                    </div>
+
+                    <div id="chat" class="messages" aria-live="polite">
+                        <div class="empty-state">
+                            <span>Start the conversation</span>
+                            <p>No messages yet.</p>
+                        </div>
+                    </div>
+
+                    <p id="typingIndicator" class="typing-indicator" aria-live="polite"></p>
+                    <p id="connectionNotice" class="connection-notice" hidden aria-live="polite"></p>
+
+                    <div id="replyBar" class="reply-bar" hidden>
+                        <div>
+                            <span>Replying to <strong id="replyAuthor"></strong></span>
+                            <p id="replyPreview"></p>
+                        </div>
+                        <button id="cancelReply" type="button" aria-label="Cancel reply">x</button>
+                    </div>
+
+                    <form class="composer">
+                        <input id="fileInput" type="file" hidden>
+                        <button class="attach-btn" type="button" disabled aria-label="Attach file" title="Attach file">
+                            +
+                        </button>
+                        <textarea
+                            id="message"
+                            rows="1"
+                            maxlength="500"
+                            placeholder="Message or paste an image"
+                            disabled
+                        ></textarea>
+                        <button class="submit-btn" type="submit" disabled aria-label="Send message">
+                            Send
+                        </button>
+                    </form>
+                </section>
+            </div>
+        </section>
+
+        <section id="nameModal" class="name-modal" aria-labelledby="nameTitle" aria-modal="true" role="dialog">
+            <form id="nameForm" class="name-card">
+                <p class="eyebrow">Choose your name</p>
+                <h2 id="nameTitle">Jump into the room</h2>
+                <input
+                    id="username"
+                    type="text"
+                    maxlength="24"
+                    autocomplete="nickname"
+                    placeholder="Your name"
+                    required
+                >
+                <button type="submit">Join chat</button>
+            </form>
+        </section>
+    </main>
+
     <script src="chat.js"></script>
 </body>
 </html>
