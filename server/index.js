@@ -1,7 +1,21 @@
+const http = require('http');
 const WebSocket = require('ws');
 
-const PORT = process.env.PORT || 8080;
-const wss = new WebSocket.Server({ port: PORT });
+const PORT = Number(process.env.PORT) || 8080;
+const HOST = '0.0.0.0';
+
+const server = http.createServer((req, res) => {
+    if (req.url === '/' || req.url === '/health') {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('ok');
+        return;
+    }
+
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('not found');
+});
+
+const wss = new WebSocket.Server({ server });
 
 const rooms = new Map();
 
@@ -445,4 +459,6 @@ wss.on('close', () => {
     clearInterval(heartbeat);
 });
 
-console.log(`Server is running on port ${PORT}`);
+server.listen(PORT, HOST, () => {
+    console.log(`Server is running on ${HOST}:${PORT}`);
+});
