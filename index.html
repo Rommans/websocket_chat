@@ -69,6 +69,17 @@
                         <button id="cancelReply" type="button" aria-label="Cancel reply">x</button>
                     </div>
 
+                    <button
+                        id="scrollToBottom"
+                        class="scroll-to-bottom"
+                        type="button"
+                        hidden
+                        aria-label="Scroll to latest messages"
+                        title="Scroll to bottom"
+                    >
+                        ↓
+                    </button>
+
                     <form class="composer">
                         <input id="fileInput" type="file" hidden>
                         <button class="attach-btn" type="button" disabled aria-label="Attach file" title="Attach file">
@@ -77,7 +88,6 @@
                         <textarea
                             id="message"
                             rows="1"
-                            maxlength="500"
                             placeholder="Message or paste an image"
                             disabled
                         ></textarea>

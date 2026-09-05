@@ -447,6 +447,58 @@ h1 {
     white-space: nowrap;
 }
 
+.message-text.is-collapsible.is-collapsed {
+    max-height: 220px;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(180deg, #000 72%, transparent);
+    mask-image: linear-gradient(180deg, #000 72%, transparent);
+}
+
+.message-expand-btn {
+    margin-top: 8px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--accent-dark);
+    font-size: 12px;
+    font-weight: 800;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.message-expand-btn:hover {
+    color: var(--ink);
+}
+
+.scroll-to-bottom {
+    position: absolute;
+    right: 22px;
+    bottom: 132px;
+    z-index: 4;
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    border: 1px solid rgb(32 33 31 / 12%);
+    border-radius: 50%;
+    background: rgb(255 250 240 / 94%);
+    box-shadow: 0 10px 24px rgb(32 33 31 / 16%);
+    color: var(--ink);
+    font-size: 18px;
+    font-weight: 800;
+    transition: transform 180ms ease, background 180ms ease, border-color 180ms ease, opacity 180ms ease;
+}
+
+.scroll-to-bottom:hover {
+    border-color: var(--accent);
+    background: #e5f0df;
+    transform: translateY(-1px);
+}
+
+.scroll-to-bottom[hidden] {
+    display: none;
+}
+
 .message-text code {
     padding: 2px 5px;
     border: 1px solid rgb(32 33 31 / 12%);
@@ -1019,6 +1071,11 @@ h1 {
     .composer {
         padding: 12px;
         grid-template-columns: auto 1fr;
+    }
+
+    .scroll-to-bottom {
+        right: 16px;
+        bottom: 118px;
     }
 
     .submit-btn {
