@@ -1,7 +1,8 @@
 const REMOTE_WS_URL = 'wss://websocket-chat-s2s0.onrender.com';
 const LOCAL_WS_URL = 'ws://localhost:8080';
 const FILE_MAX_BYTES = 10 * 1024 * 1024;
-const MESSAGE_MAX_LENGTH = 500;
+const MESSAGE_COLLAPSED_HEIGHT = 220;
+const SCROLL_THRESHOLD = 96;
 const TYPING_IDLE_DELAY = 1100;
 const RECONNECT_DELAY = 2500;
 const LONG_PRESS_DELAY = 520;
@@ -111,6 +112,7 @@ const elements = {
     replyBar: document.querySelector('#replyBar'),
     replyPreview: document.querySelector('#replyPreview'),
     roomName: document.querySelector('#roomName'),
+    scrollToBottomButton: document.querySelector('#scrollToBottom'),
     sidebarToggle: document.querySelector('#sidebarToggle'),
     submitButton: document.querySelector('.submit-btn'),
     typingIndicator: document.querySelector('#typingIndicator'),
@@ -177,7 +179,7 @@ const createElement = (tagName, className, text) => {
 
 const normalizeUsername = value => value.trim().replace(/\s+/g, ' ').slice(0, 24);
 
-const normalizeMessage = value => value.trim().slice(0, MESSAGE_MAX_LENGTH);
+const normalizeMessage = value => value.trim();
 
 const createLink = url => {
     const link = createElement('a', 'message-link', url);
@@ -575,8 +577,52 @@ const setComposerReady = () => {
     setConnectionNotice('');
 };
 
-const scrollToBottom = () => {
-    elements.chat.scrollTop = elements.chat.scrollHeight;
+const isNearBottom = () => {
+    const { scrollTop, scrollHeight, clientHeight } = elements.chat;
+
+    return scrollHeight - scrollTop - clientHeight < SCROLL_THRESHOLD;
+};
+
+const updateScrollToBottomButton = () => {
+    if (!elements.scrollToBottomButton) {
+        return;
+    }
+
+    elements.scrollToBottomButton.hidden = isNearBottom();
+};
+
+const scrollToBottom = ({ force = false, behavior = 'auto' } = {}) => {
+    if (!force && !isNearBottom()) {
+        updateScrollToBottomButton();
+        return;
+    }
+
+    elements.chat.scrollTo({
+        top: elements.chat.scrollHeight,
+        behavior
+    });
+    updateScrollToBottomButton();
+};
+
+const setupMessageCollapse = textElement => {
+    requestAnimationFrame(() => {
+        if (textElement.scrollHeight <= MESSAGE_COLLAPSED_HEIGHT) {
+            return;
+        }
+
+        textElement.classList.add('is-collapsible', 'is-collapsed');
+
+        const toggle = createElement('button', 'message-expand-btn', 'Show more');
+        toggle.type = 'button';
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.addEventListener('click', () => {
+            const collapsed = textElement.classList.toggle('is-collapsed');
+            toggle.textContent = collapsed ? 'Show more' : 'Show less';
+            toggle.setAttribute('aria-expanded', String(!collapsed));
+        });
+
+        textElement.insertAdjacentElement('afterend', toggle);
+    });
 };
 
 const hideEmptyState = () => {
@@ -607,6 +653,7 @@ const appendMessage = ({ id, user, message, replyTo, reactions, date, own }) => 
     bindTouchActions(bubble);
 
     text.appendChild(renderFormattedText(message));
+    setupMessageCollapse(text);
     meta.append(author, time);
     bubble.append(meta);
 
@@ -951,6 +998,12 @@ const stopTyping = () => {
         isTyping: false
     });
 };
+
+elements.chat.addEventListener('scroll', updateScrollToBottomButton, { passive: true });
+
+elements.scrollToBottomButton?.addEventListener('click', () => {
+    scrollToBottom({ force: true, behavior: 'smooth' });
+});
 
 elements.nameForm.addEventListener('submit', event => {
     event.preventDefault();

@@ -21,7 +21,6 @@ const rooms = new Map();
 
 const FILE_MAX_BYTES = 10 * 1024 * 1024;
 const HEARTBEAT_INTERVAL = 30000;
-const MESSAGE_MAX_LENGTH = 500;
 const REPLY_PREVIEW_MAX_LENGTH = 90;
 const ROOM_MAX_LENGTH = 32;
 const USERNAME_MAX_LENGTH = 24;
@@ -118,7 +117,13 @@ const normalizeText = (value, maxLength) => {
 
 const normalizeUsername = value => normalizeText(value, USERNAME_MAX_LENGTH).replace(/\s+/g, ' ');
 
-const normalizeMessage = value => normalizeText(value, MESSAGE_MAX_LENGTH);
+const normalizeMessage = value => {
+    if (typeof value !== 'string') {
+        return '';
+    }
+
+    return value.trim();
+};
 
 const normalizeRoomId = value => {
     const room = normalizeText(value, ROOM_MAX_LENGTH)
