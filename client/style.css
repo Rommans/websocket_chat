@@ -50,7 +50,7 @@ button {
     height: min(760px, calc(100vh - 56px));
     min-height: 560px;
     display: grid;
-    grid-template-rows: auto 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
     overflow: hidden;
     border: 1px solid rgb(32 33 31 / 12%);
     border-radius: 8px;
@@ -298,8 +298,15 @@ h1 {
     min-width: 0;
     min-height: 0;
     display: grid;
-    grid-template-rows: 1fr auto auto;
+    grid-template-rows: minmax(0, 1fr);
+    grid-auto-rows: auto;
     background: linear-gradient(180deg, rgb(255 250 240 / 72%), rgb(244 239 230 / 92%));
+}
+
+.messages-pane {
+    position: relative;
+    min-height: 0;
+    display: grid;
 }
 
 .drop-overlay {
@@ -328,7 +335,9 @@ h1 {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    overflow-x: hidden;
     overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 .empty-state {
@@ -473,7 +482,7 @@ h1 {
 .scroll-to-bottom {
     position: absolute;
     right: 22px;
-    bottom: 132px;
+    bottom: 16px;
     z-index: 4;
     width: 42px;
     height: 42px;
@@ -612,7 +621,7 @@ h1 {
     transform: translateX(-50%) scale(1);
 }
 
-.reaction-bar.has-any-reactions:not(:hover):not(:focus-within) .reaction-btn:not(.primary-reaction) {
+.message-bubble:not(.actions-open) .reaction-bar.has-any-reactions:not(:hover):not(:focus-within) .reaction-btn:not(.primary-reaction) {
     display: none;
 }
 
@@ -824,13 +833,20 @@ h1 {
 #message {
     min-height: 48px;
     max-height: 128px;
-    resize: vertical;
+    resize: none;
+    overflow-y: auto;
     padding: 13px 14px;
     border: 1px solid rgb(32 33 31 / 14%);
     border-radius: 8px;
     outline: none;
     background: white;
     color: var(--ink);
+}
+
+#message::placeholder {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 #message:focus {
@@ -919,56 +935,120 @@ h1 {
     }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+    html,
+    body {
+        height: 100%;
+        overflow: hidden;
+        overscroll-behavior: none;
+    }
+
+    body {
+        min-height: 0;
+    }
+
+    button,
+    a,
+    textarea {
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+    }
+
     .app {
+        height: 100vh;
+        height: 100dvh;
+        height: var(--app-height, 100dvh);
+        min-height: 0;
         padding: 0;
+        display: block;
     }
 
     .chat-shell {
         width: 100%;
-        height: 100vh;
-        min-height: 100vh;
+        height: 100%;
+        min-height: 0;
         border: 0;
         border-radius: 0;
+        box-shadow: none;
     }
 
     .chat-header {
-        min-height: auto;
-        padding: 16px;
-        align-items: flex-start;
+        min-height: 0;
+        padding:
+            calc(10px + env(safe-area-inset-top))
+            calc(14px + env(safe-area-inset-right))
+            10px
+            calc(14px + env(safe-area-inset-left));
+        gap: 12px;
+    }
+
+    .chat-title {
+        min-width: 0;
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+    }
+
+    .chat-title .eyebrow {
+        display: none;
     }
 
     h1 {
-        font-size: 28px;
+        margin-top: 0;
+        font-size: 22px;
+        white-space: nowrap;
+    }
+
+    .room-name {
+        min-width: 0;
+        margin-top: 0;
+        overflow: hidden;
+        font-size: 13px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .connection-pill {
-        min-width: 118px;
-        min-height: 38px;
+        flex: 0 0 auto;
+        min-width: 0;
+        min-height: 30px;
+        padding: 5px 11px;
+        gap: 7px;
         font-size: 12px;
     }
 
-    .room-layout {
-        grid-template-columns: 1fr;
-    }
-
+    .room-layout,
     .chat-shell.sidebar-collapsed .room-layout {
         grid-template-columns: 1fr;
+        grid-template-rows: auto minmax(0, 1fr);
     }
 
-    .sidebar {
-        padding: 10px 14px;
+    .sidebar,
+    .chat-shell.sidebar-collapsed .sidebar {
+        padding: 6px calc(14px + env(safe-area-inset-right)) 6px calc(14px + env(safe-area-inset-left));
         border-right: 0;
         border-bottom: 1px solid var(--line);
     }
 
-    .chat-shell.sidebar-collapsed .sidebar {
-        padding: 10px 14px;
-    }
-
+    .sidebar-header,
     .chat-shell.sidebar-collapsed .sidebar-header {
         flex-direction: row;
-        gap: 12px;
+        gap: 10px;
+        font-size: 13px;
+    }
+
+    .sidebar-toggle,
+    .chat-shell.sidebar-collapsed .sidebar-toggle {
+        width: 30px;
+        height: 30px;
+    }
+
+    .sidebar-toggle span {
+        transform: translateY(2px) rotate(135deg);
+    }
+
+    .chat-shell.sidebar-collapsed .sidebar-toggle span {
+        transform: translateY(-2px) rotate(-45deg);
     }
 
     .chat-shell.sidebar-collapsed .sidebar-title {
@@ -977,109 +1057,192 @@ h1 {
         opacity: 1;
     }
 
+    .online-count,
     .chat-shell.sidebar-collapsed .online-count {
+        min-width: 28px;
+        height: 24px;
         margin-left: auto;
+        font-size: 12px;
     }
 
     .users-list {
+        margin-top: 8px;
+        padding-bottom: 2px;
         display: flex;
         gap: 8px;
         overflow-x: auto;
+        overscroll-behavior-x: contain;
+        scrollbar-width: none;
+    }
+
+    .users-list::-webkit-scrollbar {
+        display: none;
+    }
+
+    .chat-shell.sidebar-collapsed .users-list {
+        display: none;
     }
 
     .user-item {
         flex: 0 0 auto;
         max-width: 180px;
+        padding: 5px 10px 5px 5px;
+        font-size: 13px;
     }
 
-    .chat-shell.sidebar-collapsed .user-item {
-        width: auto;
-        height: auto;
-        padding: 9px;
-        justify-content: flex-start;
-        border-radius: 8px;
-    }
-
-    .chat-shell.sidebar-collapsed .user-item span:last-child {
-        position: static;
-        width: auto;
-        height: auto;
-        overflow: hidden;
-        clip: auto;
+    .user-item .avatar,
+    .message-row .avatar {
+        width: 28px;
+        height: 28px;
+        font-size: 12px;
     }
 
     .messages {
-        padding: 16px;
+        padding: 12px calc(12px + env(safe-area-inset-right)) 12px calc(12px + env(safe-area-inset-left));
+        gap: 4px;
     }
 
     .message-row {
         max-width: 92%;
-        padding-top: 18px;
-        padding-bottom: 28px;
+        gap: 8px;
+        padding-top: 6px;
+        padding-bottom: 6px;
     }
 
-    .message-text {
-        padding-right: 0;
+    .message-row:has(.reaction-bar.has-any-reactions) {
+        padding-bottom: 30px;
     }
 
-    .copy-btn {
-        opacity: 0;
-        transform: translateY(2px);
+    .message-bubble {
+        min-width: 104px;
+        padding: 10px 12px;
     }
 
-    .message-actions {
-        position: absolute;
-        left: 10px;
-        top: -14px;
-        margin-top: 0;
+    .file-bubble {
+        min-width: min(240px, 100%);
     }
 
-    .reply-btn {
-        opacity: 0;
-        transform: translateY(2px);
+    .audio-preview {
+        min-width: 0;
     }
 
     .reaction-bar {
-        position: absolute;
-        left: 50%;
-        bottom: -24px;
-        margin-top: 0;
-        opacity: 0;
-        pointer-events: none;
-        transform: translateX(-50%) scale(0.98);
+        top: calc(100% - 10px);
+        right: auto;
+        bottom: auto;
+        left: 8px;
+        transform: scale(0.98);
+        transform-origin: left center;
         box-shadow: 0 12px 32px rgb(32 33 31 / 14%);
+    }
+
+    .message-row.own .reaction-bar {
+        right: 8px;
+        left: auto;
+        transform-origin: right center;
+    }
+
+    .message-bubble:hover .reaction-bar,
+    .message-bubble:focus-within .reaction-bar,
+    .message-bubble.actions-open .reaction-bar,
+    .reaction-bar.has-any-reactions {
+        opacity: 1;
+        pointer-events: auto;
+        transform: none;
     }
 
     .message-bubble.actions-open .copy-btn,
     .message-bubble.actions-open .reply-btn {
         opacity: 1;
-        pointer-events: auto;
         transform: translateY(0);
     }
 
-    .message-bubble.actions-open .reaction-bar,
-    .reaction-bar.has-any-reactions {
-        opacity: 1;
-        pointer-events: auto;
-        transform: translateX(-50%) scale(1);
+    .typing-indicator {
+        min-height: 20px;
+        padding: 0 14px;
+        font-size: 12px;
+        line-height: 20px;
+    }
+
+    .connection-notice,
+    .reply-bar {
+        margin: 0 10px 8px;
+        padding: 8px 10px;
+    }
+
+    .reply-bar > div {
+        min-width: 0;
+        flex: 1 1 auto;
     }
 
     .reply-bar p {
-        max-width: 72vw;
+        max-width: none;
     }
 
     .composer {
-        padding: 12px;
-        grid-template-columns: auto 1fr;
+        padding:
+            8px
+            calc(10px + env(safe-area-inset-right))
+            calc(8px + env(safe-area-inset-bottom))
+            calc(10px + env(safe-area-inset-left));
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: end;
+        gap: 8px;
     }
 
-    .scroll-to-bottom {
-        right: 16px;
-        bottom: 118px;
+    .attach-btn {
+        width: 44px;
+        height: 44px;
+        min-height: 44px;
+        font-size: 24px;
+    }
+
+    #message {
+        min-height: 44px;
+        max-height: 120px;
+        padding: 10px 12px;
+        line-height: 1.4;
     }
 
     .submit-btn {
-        grid-column: 1 / -1;
-        width: 100%;
+        min-height: 44px;
+        padding: 0 16px;
+    }
+
+    .scroll-to-bottom {
+        right: 12px;
+        bottom: 12px;
+        width: 40px;
+        height: 40px;
+    }
+
+    .name-modal {
+        padding: 16px;
+    }
+
+    .name-card {
+        padding: 22px;
+    }
+
+    .name-card h2 {
+        font-size: 26px;
+    }
+}
+
+@media (hover: none) {
+    .copy-btn,
+    .reply-btn {
+        pointer-events: none;
+    }
+
+    .message-bubble.actions-open .copy-btn,
+    .message-bubble.actions-open .reply-btn {
+        pointer-events: auto;
+    }
+
+    .attach-btn:hover,
+    .submit-btn:hover,
+    .scroll-to-bottom:hover {
+        transform: none;
     }
 }

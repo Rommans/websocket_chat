@@ -7,6 +7,7 @@ const TYPING_IDLE_DELAY = 1100;
 const RECONNECT_DELAY = 2500;
 const LONG_PRESS_DELAY = 520;
 const DEFAULT_ROOM = 'general';
+const MOBILE_LAYOUT_QUERY = window.matchMedia('(max-width: 760px), (max-height: 500px) and (pointer: coarse)');
 const REACTIONS = [
     { id: 'like', label: 'Like', icon: '👍' },
     { id: 'heart', label: 'Love', icon: '❤️' },
@@ -121,6 +122,7 @@ const elements = {
 };
 
 const state = {
+    chatHeight: 0,
     connection: null,
     isTyping: false,
     reconnectTimer: null,
@@ -130,6 +132,7 @@ const state = {
     messages: new Map(),
     replyTo: null,
     room: DEFAULT_ROOM,
+    stickToBottom: true,
     touchActionTimer: null,
     user: null,
     username: ''
@@ -392,6 +395,7 @@ const resetRoomState = () => {
     state.typingUsers.clear();
     state.typingTimers.forEach(timer => window.clearTimeout(timer));
     state.typingTimers.clear();
+    state.stickToBottom = true;
     clearReplyTo();
 
     elements.chat.querySelectorAll('.message-row, .system-message').forEach(element => element.remove());
@@ -591,17 +595,65 @@ const updateScrollToBottomButton = () => {
     elements.scrollToBottomButton.hidden = isNearBottom();
 };
 
-const scrollToBottom = ({ force = false, behavior = 'auto' } = {}) => {
-    if (!force && !isNearBottom()) {
-        updateScrollToBottomButton();
-        return;
-    }
-
+const scrollToBottom = (behavior = 'auto') => {
+    state.stickToBottom = true;
     elements.chat.scrollTo({
         top: elements.chat.scrollHeight,
         behavior
     });
     updateScrollToBottomButton();
+};
+
+// Decide before appending: once a tall message is in, the chat is no longer "near bottom".
+const appendToChat = (element, { stick = state.stickToBottom } = {}) => {
+    elements.chat.appendChild(element);
+
+    if (stick) {
+        scrollToBottom();
+        return;
+    }
+
+    updateScrollToBottomButton();
+};
+
+const keepBottomOnLoad = media => {
+    media.addEventListener(media.tagName === 'IMG' ? 'load' : 'loadedmetadata', () => {
+        if (state.stickToBottom) {
+            scrollToBottom();
+        }
+    }, { once: true });
+};
+
+const resizeComposerInput = () => {
+    const input = elements.message;
+
+    input.style.height = 'auto';
+    input.style.height = `${input.scrollHeight + input.offsetHeight - input.clientHeight}px`;
+};
+
+const setSidebarCollapsed = collapsed => {
+    const label = collapsed ? 'Expand online users panel' : 'Collapse online users panel';
+
+    elements.chatShell.classList.toggle('sidebar-collapsed', collapsed);
+    elements.sidebarToggle.setAttribute('aria-expanded', String(!collapsed));
+    elements.sidebarToggle.setAttribute('aria-label', label);
+    elements.sidebarToggle.title = collapsed ? 'Expand panel' : 'Collapse panel';
+};
+
+// Mobile browsers report 100vh as the height without the toolbar and keyboard, so size the app to what is actually visible.
+const syncViewportHeight = () => {
+    const viewport = window.visualViewport;
+
+    if (viewport && viewport.scale > 1) {
+        return;
+    }
+
+    const height = viewport ? viewport.height : window.innerHeight;
+    document.documentElement.style.setProperty('--app-height', `${Math.round(height)}px`);
+
+    if (MOBILE_LAYOUT_QUERY.matches && window.scrollY) {
+        window.scrollTo(0, 0);
+    }
 };
 
 const setupMessageCollapse = textElement => {
@@ -669,8 +721,7 @@ const appendMessage = ({ id, user, message, replyTo, reactions, date, own }) => 
         wrapper.append(bubble);
     }
 
-    elements.chat.appendChild(wrapper);
-    scrollToBottom();
+    appendToChat(wrapper, { stick: own || state.stickToBottom });
 };
 
 const formatFileSize = bytes => {
@@ -721,6 +772,7 @@ const appendFileMessage = ({ id, user, file, replyTo, reactions, date, own }) =>
         preview.className = 'file-preview';
         preview.src = file.dataUrl;
         preview.alt = file.name;
+        keepBottomOnLoad(preview);
         fileCard.append(preview);
     }
 
@@ -730,6 +782,7 @@ const appendFileMessage = ({ id, user, file, replyTo, reactions, date, own }) =>
         preview.src = file.dataUrl;
         preview.controls = true;
         preview.preload = 'metadata';
+        keepBottomOnLoad(preview);
         fileCard.append(preview);
     }
 
@@ -760,8 +813,7 @@ const appendFileMessage = ({ id, user, file, replyTo, reactions, date, own }) =>
         wrapper.append(bubble);
     }
 
-    elements.chat.appendChild(wrapper);
-    scrollToBottom();
+    appendToChat(wrapper, { stick: own || state.stickToBottom });
 };
 
 const appendSystemMessage = (message, date) => {
@@ -772,8 +824,7 @@ const appendSystemMessage = (message, date) => {
     const time = createElement('small', '', formatTime(date));
 
     row.append(text, time);
-    elements.chat.appendChild(row);
-    scrollToBottom();
+    appendToChat(row);
 };
 
 const appendErrorMessage = message => {
@@ -999,10 +1050,30 @@ const stopTyping = () => {
     });
 };
 
-elements.chat.addEventListener('scroll', updateScrollToBottomButton, { passive: true });
+elements.chat.addEventListener('scroll', () => {
+    // Scroll anchoring fires a scroll event when the list resizes; let the ResizeObserver handle that one.
+    if (elements.chat.clientHeight !== state.chatHeight) {
+        return;
+    }
+
+    state.stickToBottom = isNearBottom();
+    updateScrollToBottomButton();
+}, { passive: true });
+
+// The message list shrinks when the keyboard, reply bar or a taller composer appears; keep the latest message visible.
+new ResizeObserver(() => {
+    state.chatHeight = elements.chat.clientHeight;
+
+    if (state.stickToBottom) {
+        scrollToBottom();
+        return;
+    }
+
+    updateScrollToBottomButton();
+}).observe(elements.chat);
 
 elements.scrollToBottomButton?.addEventListener('click', () => {
-    scrollToBottom({ force: true, behavior: 'smooth' });
+    scrollToBottom('smooth');
 });
 
 elements.nameForm.addEventListener('submit', event => {
@@ -1016,14 +1087,16 @@ elements.nameForm.addEventListener('submit', event => {
 });
 
 elements.sidebarToggle.addEventListener('click', () => {
-    const isCollapsed = elements.chatShell.classList.toggle('sidebar-collapsed');
-    const label = isCollapsed ? 'Expand online users panel' : 'Collapse online users panel';
-    const title = isCollapsed ? 'Expand panel' : 'Collapse panel';
-
-    elements.sidebarToggle.setAttribute('aria-expanded', String(!isCollapsed));
-    elements.sidebarToggle.setAttribute('aria-label', label);
-    elements.sidebarToggle.title = title;
+    setSidebarCollapsed(!elements.chatShell.classList.contains('sidebar-collapsed'));
 });
+
+MOBILE_LAYOUT_QUERY.addEventListener('change', event => {
+    setSidebarCollapsed(event.matches);
+});
+
+window.visualViewport?.addEventListener('resize', syncViewportHeight);
+window.visualViewport?.addEventListener('scroll', syncViewportHeight);
+window.addEventListener('resize', syncViewportHeight);
 
 elements.composer.addEventListener('submit', event => {
     event.preventDefault();
@@ -1042,6 +1115,7 @@ elements.composer.addEventListener('submit', event => {
 
     if (sent) {
         elements.message.value = '';
+        resizeComposerInput();
         clearReplyTo();
         stopTyping();
     }
@@ -1103,6 +1177,8 @@ document.addEventListener('pointerdown', event => {
 });
 
 elements.message.addEventListener('input', () => {
+    resizeComposerInput();
+
     if (!state.isTyping) {
         state.isTyping = true;
         sendPayload({
@@ -1122,6 +1198,8 @@ elements.message.addEventListener('keydown', event => {
     }
 });
 
+syncViewportHeight();
+setSidebarCollapsed(MOBILE_LAYOUT_QUERY.matches);
 elements.username.focus();
 state.room = getRoomId();
 elements.roomName.textContent = `#${state.room}`;
