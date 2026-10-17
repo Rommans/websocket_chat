@@ -15,11 +15,13 @@ const server = http.createServer((req, res) => {
     res.end('not found');
 });
 
-const wss = new WebSocket.Server({ server });
-
 const rooms = new Map();
 
 const FILE_MAX_BYTES = 10 * 1024 * 1024;
+// A 10 MB file is ~13.4 MB as base64, plus the JSON envelope.
+const PAYLOAD_MAX_BYTES = 15 * 1024 * 1024;
+const FILE_MIME_MAX_LENGTH = 100;
+const ROOM_MESSAGES_LIMIT = 500;
 const HEARTBEAT_INTERVAL = 30000;
 const REPLY_PREVIEW_MAX_LENGTH = 90;
 const ROOM_MAX_LENGTH = 32;
@@ -105,6 +107,8 @@ const ALLOWED_FILE_EXTENSIONS = new Set([
     'zip'
 ]);
 
+const wss = new WebSocket.Server({ server, maxPayload: PAYLOAD_MAX_BYTES });
+
 const createId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 const normalizeText = (value, maxLength) => {
@@ -169,8 +173,14 @@ const serializeReactions = reactions => Object.fromEntries(
 const rememberMessage = (room, message) => {
     room.messages.set(message.id, {
         ...message,
+        preview: normalizeText(message.preview, REPLY_PREVIEW_MAX_LENGTH),
         reactions: new Map()
     });
+
+    // Map keeps insertion order, so the first key is the oldest message.
+    if (room.messages.size > ROOM_MESSAGES_LIMIT) {
+        room.messages.delete(room.messages.keys().next().value);
+    }
 };
 
 const getOnlineUsers = room => Array.from(room.clients.values()).map(client => ({
@@ -303,17 +313,41 @@ const handleTyping = (ws, payload) => {
     }, ws);
 };
 
-const isValidFile = file => {
+// Returns the decoded byte size of a base64 data URL, or 0 when it is malformed.
+const getDataUrlSize = dataUrl => {
+    if (typeof dataUrl !== 'string') {
+        return 0;
+    }
+
+    const commaIndex = dataUrl.indexOf(',');
+    const header = dataUrl.slice(0, commaIndex);
+    const base64 = dataUrl.slice(commaIndex + 1);
+
+    if (commaIndex === -1 || !header.startsWith('data:') || !header.endsWith(';base64')) {
+        return 0;
+    }
+
+    if (base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) {
+        return 0;
+    }
+
+    const padding = base64.length - base64.replace(/=+$/, '').length;
+
+    return base64.length / 4 * 3 - padding;
+};
+
+// Measures the file from its data instead of trusting the size the client claims; returns 0 when invalid.
+const getValidFileSize = file => {
     if (!file || typeof file !== 'object') {
-        return false;
+        return 0;
     }
 
     if (typeof file.name !== 'string' || !file.name.trim() || file.name.length > 120) {
-        return false;
+        return 0;
     }
 
-    if (!Number.isInteger(file.size) || file.size <= 0 || file.size > FILE_MAX_BYTES) {
-        return false;
+    if (typeof file.mime !== 'string' || file.mime.length > FILE_MIME_MAX_LENGTH) {
+        return 0;
     }
 
     const extension = file.name.split('.').pop().toLowerCase();
@@ -321,21 +355,20 @@ const isValidFile = file => {
     const hasAllowedExtension = ALLOWED_FILE_EXTENSIONS.has(extension);
 
     if (!hasAllowedType && !hasAllowedExtension) {
-        return false;
+        return 0;
     }
 
-    if (typeof file.dataUrl !== 'string' || !file.dataUrl.startsWith('data:') || !file.dataUrl.includes(';base64,')) {
-        return false;
-    }
+    const size = getDataUrlSize(file.dataUrl);
 
-    return true;
+    return size <= FILE_MAX_BYTES ? size : 0;
 };
 
 const handleFileMessage = (ws, payload) => {
     const room = getClientRoom(ws);
     const user = room?.clients.get(ws);
+    const size = getValidFileSize(payload.file);
 
-    if (!room || !user || !isValidFile(payload.file)) {
+    if (!room || !user || !size) {
         send(ws, {
             type: 'error',
             message: 'File should be an allowed type and smaller than 10 MB.'
@@ -349,7 +382,7 @@ const handleFileMessage = (ws, payload) => {
         user,
         file: {
             name: normalizeText(payload.file.name, 120),
-            size: payload.file.size,
+            size,
             mime: payload.file.mime,
             dataUrl: payload.file.dataUrl
         },
@@ -403,6 +436,12 @@ wss.on('connection', ws => {
 
     ws.on('pong', () => {
         ws.isAlive = true;
+    });
+
+    // Without a listener, a protocol error (e.g. a frame above maxPayload) crashes the whole server.
+    // ws closes the connection itself afterwards.
+    ws.on('error', error => {
+        console.warn(`WebSocket error: ${error.message}`);
     });
 
     ws.on('message', rawMessage => {
