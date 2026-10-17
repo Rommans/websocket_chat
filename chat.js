@@ -1,6 +1,10 @@
 const REMOTE_WS_URL = 'wss://websocket-chat-s2s0.onrender.com';
 const LOCAL_WS_URL = 'ws://localhost:8080';
 const FILE_MAX_BYTES = 10 * 1024 * 1024;
+// Keep in sync with the server's WebSocket maxPayload.
+const PAYLOAD_MAX_BYTES = 15 * 1024 * 1024;
+const IME_PROCESS_KEY_CODE = 229;
+const SHORT_VIEWPORT_HEIGHT = 300;
 const MESSAGE_COLLAPSED_HEIGHT = 220;
 const SCROLL_THRESHOLD = 96;
 const TYPING_IDLE_DELAY = 1100;
@@ -327,17 +331,30 @@ const copyText = text => {
     return Promise.resolve();
 };
 
-const copyImage = async file => {
-    if (!navigator.clipboard || !window.ClipboardItem || !file.mime.startsWith('image/')) {
-        throw new Error('Image clipboard is not available.');
+// Goes through <img> + canvas: the CSP blocks fetch() of data: URLs, and clipboards only accept PNG images.
+const imageToPngBlob = dataUrl => new Promise((resolve, reject) => {
+    const image = new Image();
+
+    image.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        canvas.getContext('2d').drawImage(image, 0, 0);
+        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Could not encode image.')), 'image/png');
+    };
+    image.onerror = () => reject(new Error('Could not load image.'));
+    image.src = dataUrl;
+});
+
+const copyImage = file => {
+    if (!navigator.clipboard?.write || !window.ClipboardItem || !file.mime.startsWith('image/')) {
+        return Promise.reject(new Error('Image clipboard is not available.'));
     }
 
-    const response = await fetch(file.dataUrl);
-    const blob = await response.blob();
-
-    await navigator.clipboard.write([
+    // Pass the blob as a promise so write() runs inside the click gesture, which Safari requires.
+    return navigator.clipboard.write([
         new ClipboardItem({
-            [blob.type]: blob
+            'image/png': imageToPngBlob(file.dataUrl)
         })
     ]);
 };
@@ -390,20 +407,10 @@ const clearReplyTo = () => {
     elements.replyBar.hidden = true;
 };
 
-const resetRoomState = () => {
-    state.messages.clear();
+const clearTypingState = () => {
     state.typingUsers.clear();
     state.typingTimers.forEach(timer => window.clearTimeout(timer));
     state.typingTimers.clear();
-    state.stickToBottom = true;
-    clearReplyTo();
-
-    elements.chat.querySelectorAll('.message-row, .system-message').forEach(element => element.remove());
-
-    if (elements.emptyState) {
-        elements.emptyState.hidden = false;
-    }
-
     renderTyping();
 };
 
@@ -550,7 +557,16 @@ const sendPayload = payload => {
         return false;
     }
 
-    state.connection.send(JSON.stringify(payload));
+    const data = JSON.stringify(payload);
+
+    // The server drops the connection on oversized frames. UTF-8 takes at most 3 bytes per UTF-16 unit,
+    // so only long payloads need the exact byte count.
+    if (data.length * 3 > PAYLOAD_MAX_BYTES && new Blob([data]).size > PAYLOAD_MAX_BYTES) {
+        appendErrorMessage('This message is too large to send.');
+        return false;
+    }
+
+    state.connection.send(data);
     return true;
 };
 
@@ -640,20 +656,22 @@ const setSidebarCollapsed = collapsed => {
     elements.sidebarToggle.title = collapsed ? 'Expand panel' : 'Collapse panel';
 };
 
-// Mobile browsers report 100vh as the height without the toolbar and keyboard, so size the app to what is actually visible.
-const syncViewportHeight = () => {
+// 100vh ignores the mobile toolbar and keyboard. On mobile the app is a fixed layer sized and moved to the visual
+// viewport, so iOS can neither hide the composer under the keyboard nor pan the header out of view.
+const syncViewport = () => {
     const viewport = window.visualViewport;
 
     if (viewport && viewport.scale > 1) {
         return;
     }
 
+    const root = document.documentElement;
     const height = viewport ? viewport.height : window.innerHeight;
-    document.documentElement.style.setProperty('--app-height', `${Math.round(height)}px`);
+    const offset = viewport ? viewport.offsetTop : 0;
 
-    if (MOBILE_LAYOUT_QUERY.matches && window.scrollY) {
-        window.scrollTo(0, 0);
-    }
+    root.style.setProperty('--app-height', `${Math.round(height)}px`);
+    root.style.setProperty('--app-offset', `${Math.round(offset)}px`);
+    root.classList.toggle('is-short-viewport', height < SHORT_VIEWPORT_HEIGHT);
 };
 
 const setupMessageCollapse = textElement => {
@@ -742,9 +760,10 @@ const isAllowedFile = file => {
     return ALLOWED_FILE_TYPES.has(file.type) || ALLOWED_FILE_EXTENSIONS.has(extension);
 };
 
-const appendFileMessage = ({ id, user, file, replyTo, reactions, date, own }) => {
+const appendFileMessage = ({ id, user, file: rawFile, replyTo, reactions, date, own }) => {
     hideEmptyState();
 
+    const file = { ...rawFile, mime: typeof rawFile.mime === 'string' ? rawFile.mime : '' };
     const item = { id, kind: 'file', user, file, replyTo, reactions: reactions || {}, preview: file.name };
     const wrapper = createElement('article', own ? 'message-row own' : 'message-row');
     const bubble = createElement('div', 'message-bubble file-bubble');
@@ -894,11 +913,18 @@ const handleServerMessage = event => {
     }
 
     if (payload.type === 'ready') {
+        const isRejoin = Boolean(state.user);
+
         state.user = payload.user;
         state.room = payload.room || state.room;
         elements.roomName.textContent = `#${state.room}`;
         renderUsers(payload.users || []);
         setComposerReady();
+
+        if (isRejoin) {
+            appendSystemMessage('Reconnected. Messages sent while you were offline are not shown.');
+        }
+
         return;
     }
 
@@ -1011,7 +1037,7 @@ const connect = () => {
     state.connection.onopen = () => {
         setConnectionStatus('online', 'Online');
         setConnectionNotice('Connected. Joining the room...');
-        resetRoomState();
+        clearTypingState();
 
         if (state.username) {
             sendPayload({
@@ -1094,9 +1120,9 @@ MOBILE_LAYOUT_QUERY.addEventListener('change', event => {
     setSidebarCollapsed(event.matches);
 });
 
-window.visualViewport?.addEventListener('resize', syncViewportHeight);
-window.visualViewport?.addEventListener('scroll', syncViewportHeight);
-window.addEventListener('resize', syncViewportHeight);
+window.visualViewport?.addEventListener('resize', syncViewport);
+window.visualViewport?.addEventListener('scroll', syncViewport);
+window.addEventListener('resize', syncViewport);
 
 elements.composer.addEventListener('submit', event => {
     event.preventDefault();
@@ -1192,14 +1218,23 @@ elements.message.addEventListener('input', () => {
 });
 
 elements.message.addEventListener('keydown', event => {
-    if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault();
-        elements.composer.requestSubmit();
+    // Skip Enter that confirms an IME candidate (Safari reports it only via keyCode 229)
+    // and on touch keyboards, where Enter inserts a new line and the Send button sends.
+    if (event.key !== 'Enter' || event.shiftKey || event.isComposing || event.keyCode === IME_PROCESS_KEY_CODE) {
+        return;
     }
+
+    if (isTouchMode()) {
+        return;
+    }
+
+    event.preventDefault();
+    elements.composer.requestSubmit();
 });
 
-syncViewportHeight();
+syncViewport();
 setSidebarCollapsed(MOBILE_LAYOUT_QUERY.matches);
+elements.message.enterKeyHint = isTouchMode() ? 'enter' : 'send';
 elements.username.focus();
 state.room = getRoomId();
 elements.roomName.textContent = `#${state.room}`;
