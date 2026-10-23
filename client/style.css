@@ -788,6 +788,166 @@ h1 {
     background: rgb(32 33 31 / 8%);
 }
 
+.file-preview-btn {
+    width: 100%;
+    padding: 0;
+    display: block;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    cursor: zoom-in;
+}
+
+.file-preview-btn:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.photo-viewer {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    background: rgb(20 21 19 / 92%);
+    color: #fffaf0;
+    backdrop-filter: blur(6px);
+    animation: viewer-in 160ms ease both;
+}
+
+.photo-viewer[hidden] {
+    display: none;
+}
+
+.viewer-toolbar {
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.viewer-caption {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+}
+
+.viewer-caption strong {
+    overflow: hidden;
+    font-size: 14px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.viewer-caption span {
+    color: rgb(255 250 240 / 64%);
+    font-size: 12px;
+}
+
+.viewer-actions {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 8px;
+}
+
+.viewer-btn,
+.viewer-nav {
+    display: grid;
+    place-items: center;
+    border: 1px solid rgb(255 250 240 / 18%);
+    border-radius: 50%;
+    background: rgb(255 250 240 / 8%);
+    color: #fffaf0;
+    transition: background 160ms ease, opacity 160ms ease;
+}
+
+.viewer-btn {
+    width: 40px;
+    height: 40px;
+}
+
+.viewer-btn:hover,
+.viewer-nav:hover:not(:disabled) {
+    background: rgb(255 250 240 / 20%);
+}
+
+.viewer-btn svg,
+.viewer-nav svg {
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.viewer-stage {
+    position: relative;
+    min-height: 0;
+    padding: 0 76px 24px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    touch-action: none;
+}
+
+.viewer-image {
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 4px;
+    cursor: zoom-in;
+    transform-origin: center;
+    transition: transform 140ms ease;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
+.viewer-image.is-zoomed {
+    cursor: grab;
+}
+
+.viewer-image.is-dragging {
+    cursor: grabbing;
+    transition: none;
+}
+
+.viewer-nav {
+    position: absolute;
+    top: 50%;
+    width: 48px;
+    height: 48px;
+    transform: translateY(-50%);
+}
+
+.viewer-nav:disabled {
+    cursor: default;
+    opacity: 0.25;
+}
+
+.viewer-nav[hidden] {
+    display: none;
+}
+
+.viewer-prev {
+    left: 14px;
+}
+
+.viewer-next {
+    right: 14px;
+}
+
+@keyframes viewer-in {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
 .audio-preview {
     width: 100%;
     min-width: 240px;
@@ -1359,6 +1519,19 @@ h1 {
 
     .name-card h2 {
         font-size: 26px;
+    }
+
+    .viewer-stage {
+        padding: 0 8px 16px;
+    }
+
+    .viewer-nav {
+        top: auto;
+        bottom: calc(16px + env(safe-area-inset-bottom));
+        width: 44px;
+        height: 44px;
+        transform: none;
+        background: rgb(20 21 19 / 60%);
     }
 
     /* Landscape phone with the keyboard open: keep only messages and the composer. */

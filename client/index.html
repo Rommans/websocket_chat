@@ -150,6 +150,32 @@
                 <button type="submit">Join chat</button>
             </form>
         </section>
+
+        <div id="photoViewer" class="photo-viewer" role="dialog" aria-modal="true" aria-label="Photo viewer" hidden>
+            <div class="viewer-toolbar">
+                <div class="viewer-caption">
+                    <strong id="viewerAuthor"></strong>
+                    <span id="viewerMeta"></span>
+                </div>
+                <div class="viewer-actions">
+                    <a id="viewerDownload" class="viewer-btn" download aria-label="Download photo" title="Download">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+                    </a>
+                    <button id="viewerClose" class="viewer-btn" type="button" aria-label="Close viewer" title="Close (Esc)">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                    </button>
+                </div>
+            </div>
+            <div id="viewerStage" class="viewer-stage">
+                <img id="viewerImage" class="viewer-image" alt="" draggable="false">
+            </div>
+            <button id="viewerPrev" class="viewer-nav viewer-prev" type="button" aria-label="Previous photo" title="Previous (←)">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+            </button>
+            <button id="viewerNext" class="viewer-nav viewer-next" type="button" aria-label="Next photo" title="Next (→)">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+            </button>
+        </div>
     </main>
 
     <script src="chat.js"></script>
