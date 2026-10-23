@@ -27,7 +27,7 @@ const HEARTBEAT_INTERVAL = 30000;
 // cleanly (closed, reloaded) only needs to cover a reload. A dropped connection gets longer: a background tab
 // in Chrome fires its reconnect timer only once a minute, after the heartbeat has reaped the old socket.
 const CLEAN_LEAVE_GRACE_PERIOD = 5000;
-const DROPPED_LEAVE_GRACE_PERIOD = 90000;
+const DROPPED_LEAVE_GRACE_PERIOD = 60000;
 // 1005 is what the server sees when the browser calls close() without a code.
 const CLEAN_CLOSE_CODES = new Set([1000, 1001, 1005]);
 const SESSION_KEY_PATTERN = /^[A-Za-z0-9-]{16,64}$/;
