@@ -17,6 +17,10 @@ const SESSION_STORAGE_KEY = 'ws-chat:session';
 const NOTIFICATION_PREVIEW_LENGTH = 120;
 const NOTIFY_SOUND_COOLDOWN = 1500;
 const NOTIFY_SOUND = { tones: [880, 1320], spacing: 0.12, length: 0.18, volume: 0.08 };
+const VIEWER_MAX_SCALE = 5;
+const VIEWER_CLICK_SCALE = 2.5;
+const VIEWER_WHEEL_SPEED = 0.0015;
+const VIEWER_DRAG_THRESHOLD = 4;
 const MOBILE_LAYOUT_QUERY = window.matchMedia('(max-width: 760px), (max-height: 500px) and (pointer: coarse)');
 const REACTIONS = [
     { id: 'like', label: 'Like', icon: '👍' },
@@ -123,6 +127,15 @@ const elements = {
     notifySound: document.querySelector('#notifySound'),
     notifyToggle: document.querySelector('#notifyToggle'),
     onlineCount: document.querySelector('.online-count'),
+    photoViewer: document.querySelector('#photoViewer'),
+    viewerAuthor: document.querySelector('#viewerAuthor'),
+    viewerClose: document.querySelector('#viewerClose'),
+    viewerDownload: document.querySelector('#viewerDownload'),
+    viewerImage: document.querySelector('#viewerImage'),
+    viewerMeta: document.querySelector('#viewerMeta'),
+    viewerNext: document.querySelector('#viewerNext'),
+    viewerPrev: document.querySelector('#viewerPrev'),
+    viewerStage: document.querySelector('#viewerStage'),
     cancelReply: document.querySelector('#cancelReply'),
     replyAuthor: document.querySelector('#replyAuthor'),
     replyBar: document.querySelector('#replyBar'),
@@ -156,7 +169,8 @@ const state = {
     touchActionTimer: null,
     unreadCount: 0,
     user: null,
-    username: ''
+    username: '',
+    viewer: { current: null, scale: 1, x: 0, y: 0, pointer: null, returnFocus: null }
 };
 
 const getSocketUrl = () => {
@@ -857,6 +871,89 @@ const showDesktopNotification = (username, text) => {
     }
 };
 
+const getChatImages = () => Array.from(elements.chat.querySelectorAll('.file-preview-btn img'));
+
+const applyViewerTransform = () => {
+    const { scale, x, y } = state.viewer;
+
+    elements.viewerImage.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+    elements.viewerImage.classList.toggle('is-zoomed', scale > 1);
+};
+
+// Keep a zoomed photo covering the stage instead of letting it be dragged out of view.
+const clampViewerOffset = () => {
+    const viewer = state.viewer;
+    const image = elements.viewerImage;
+    const stage = elements.viewerStage;
+    const maxX = Math.max(0, (image.offsetWidth * viewer.scale - stage.clientWidth) / 2);
+    const maxY = Math.max(0, (image.offsetHeight * viewer.scale - stage.clientHeight) / 2);
+
+    viewer.x = Math.min(maxX, Math.max(-maxX, viewer.x));
+    viewer.y = Math.min(maxY, Math.max(-maxY, viewer.y));
+};
+
+// Zooms so the point under the cursor stays in place; without a cursor it zooms around the centre.
+const zoomViewer = (scale, clientX, clientY) => {
+    const viewer = state.viewer;
+    const image = elements.viewerImage;
+    const nextScale = Math.min(VIEWER_MAX_SCALE, Math.max(1, scale));
+    const stageRect = elements.viewerStage.getBoundingClientRect();
+    const centerX = stageRect.left + image.offsetLeft + image.offsetWidth / 2;
+    const centerY = stageRect.top + image.offsetTop + image.offsetHeight / 2;
+    const dx = clientX === undefined ? 0 : clientX - centerX;
+    const dy = clientY === undefined ? 0 : clientY - centerY;
+    const ratio = nextScale / viewer.scale;
+
+    viewer.x = nextScale === 1 ? 0 : dx - ratio * (dx - viewer.x);
+    viewer.y = nextScale === 1 ? 0 : dy - ratio * (dy - viewer.y);
+    viewer.scale = nextScale;
+    clampViewerOffset();
+    applyViewerTransform();
+};
+
+const showViewerImage = image => {
+    const images = getChatImages();
+    const index = images.indexOf(image);
+    const meta = image.closest('.message-bubble').querySelector('.message-meta');
+
+    Object.assign(state.viewer, { current: image, scale: 1, x: 0, y: 0 });
+    applyViewerTransform();
+    elements.viewerImage.src = image.src;
+    elements.viewerImage.alt = image.alt;
+    elements.viewerAuthor.textContent = meta.querySelector('strong').textContent;
+    elements.viewerMeta.textContent = `${meta.querySelector('span').textContent} · ${index + 1} / ${images.length}`;
+    elements.viewerDownload.href = image.src;
+    elements.viewerDownload.download = image.alt;
+    elements.viewerPrev.disabled = index <= 0;
+    elements.viewerNext.disabled = index >= images.length - 1;
+    elements.viewerPrev.hidden = images.length < 2;
+    elements.viewerNext.hidden = images.length < 2;
+};
+
+const showSiblingImage = step => {
+    const images = getChatImages();
+    const next = images[images.indexOf(state.viewer.current) + step];
+
+    if (next) {
+        showViewerImage(next);
+    }
+};
+
+const openViewer = image => {
+    state.viewer.returnFocus = document.activeElement;
+    elements.photoViewer.hidden = false;
+    showViewerImage(image);
+    elements.viewerClose.focus();
+};
+
+const closeViewer = () => {
+    elements.photoViewer.hidden = true;
+    elements.viewerImage.removeAttribute('src');
+    state.viewer.current = null;
+    state.viewer.pointer = null;
+    state.viewer.returnFocus?.focus();
+};
+
 const notifyIncoming = (user, text) => {
     if (!isPageInactive()) {
         return;
@@ -988,12 +1085,17 @@ const appendFileMessage = ({ id, user, file: rawFile, replyTo, reactions, date, 
     download.download = file.name;
 
     if (file.mime.startsWith('image/')) {
+        const open = createElement('button', 'file-preview-btn');
         const preview = document.createElement('img');
+        open.type = 'button';
+        open.setAttribute('aria-label', `Open ${file.name}`);
         preview.className = 'file-preview';
         preview.src = file.dataUrl;
         preview.alt = file.name;
         keepBottomOnLoad(preview);
-        fileCard.append(preview);
+        open.append(preview);
+        open.addEventListener('click', () => openViewer(preview));
+        fileCard.append(open);
     }
 
     if (file.mime.startsWith('video/')) {
@@ -1397,6 +1499,98 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('focus', clearUnread);
 window.addEventListener('online', reconnectNow);
+
+elements.viewerClose.addEventListener('click', closeViewer);
+elements.viewerPrev.addEventListener('click', () => showSiblingImage(-1));
+elements.viewerNext.addEventListener('click', () => showSiblingImage(1));
+
+document.addEventListener('keydown', event => {
+    if (elements.photoViewer.hidden) {
+        return;
+    }
+
+    const actions = {
+        Escape: closeViewer,
+        ArrowLeft: () => showSiblingImage(-1),
+        ArrowRight: () => showSiblingImage(1)
+    };
+
+    if (actions[event.key]) {
+        event.preventDefault();
+        actions[event.key]();
+    }
+});
+
+elements.viewerStage.addEventListener('wheel', event => {
+    event.preventDefault();
+    zoomViewer(state.viewer.scale * Math.exp(-event.deltaY * VIEWER_WHEEL_SPEED), event.clientX, event.clientY);
+}, { passive: false });
+
+// One pointer flow for mouse and touch: a press that barely moves is a click (zoom on the photo, close on the
+// backdrop); a press that moves pans a zoomed photo.
+elements.viewerStage.addEventListener('pointerdown', event => {
+    if (event.button !== 0) {
+        return;
+    }
+
+    state.viewer.pointer = {
+        id: event.pointerId,
+        onImage: event.target === elements.viewerImage,
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: state.viewer.x,
+        originY: state.viewer.y,
+        moved: false
+    };
+    elements.viewerStage.setPointerCapture(event.pointerId);
+});
+
+elements.viewerStage.addEventListener('pointermove', event => {
+    const pointer = state.viewer.pointer;
+
+    if (!pointer || pointer.id !== event.pointerId) {
+        return;
+    }
+
+    const dx = event.clientX - pointer.startX;
+    const dy = event.clientY - pointer.startY;
+    pointer.moved = pointer.moved || Math.hypot(dx, dy) > VIEWER_DRAG_THRESHOLD;
+
+    if (pointer.moved && state.viewer.scale > 1) {
+        state.viewer.x = pointer.originX + dx;
+        state.viewer.y = pointer.originY + dy;
+        clampViewerOffset();
+        elements.viewerImage.classList.add('is-dragging');
+        applyViewerTransform();
+    }
+});
+
+elements.viewerStage.addEventListener('pointerup', event => {
+    const pointer = state.viewer.pointer;
+
+    if (!pointer || pointer.id !== event.pointerId) {
+        return;
+    }
+
+    state.viewer.pointer = null;
+    elements.viewerImage.classList.remove('is-dragging');
+
+    if (pointer.moved) {
+        return;
+    }
+
+    if (!pointer.onImage) {
+        closeViewer();
+        return;
+    }
+
+    zoomViewer(state.viewer.scale > 1 ? 1 : VIEWER_CLICK_SCALE, event.clientX, event.clientY);
+});
+
+elements.viewerStage.addEventListener('pointercancel', () => {
+    state.viewer.pointer = null;
+    elements.viewerImage.classList.remove('is-dragging');
+});
 
 elements.sidebarToggle.addEventListener('click', () => {
     setSidebarCollapsed(!elements.chatShell.classList.contains('sidebar-collapsed'));
