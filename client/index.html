@@ -21,9 +21,43 @@
                     <h1>WS Chat</h1>
                     <p id="roomName" class="room-name">#general</p>
                 </div>
-                <div class="connection-pill" data-status="connecting">
-                    <span class="status-dot" aria-hidden="true"></span>
-                    <span id="connectionStatus">Connecting</span>
+                <div class="header-actions">
+                    <div class="notify-control">
+                        <button
+                            id="notifyToggle"
+                            class="notify-btn"
+                            type="button"
+                            aria-label="Notification settings"
+                            aria-expanded="false"
+                            aria-controls="notifyMenu"
+                            title="Notifications"
+                        >
+                            <svg class="icon-bell" viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M18 16v-5a6 6 0 0 0-12 0v5l-2 2h16z"/>
+                                <path d="M10 21h4"/>
+                            </svg>
+                            <svg class="icon-bell-off" viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M18 16v-5a6 6 0 0 0-12 0v5l-2 2h16z"/>
+                                <path d="M10 21h4"/>
+                                <path d="M4 4l16 16"/>
+                            </svg>
+                        </button>
+                        <div id="notifyMenu" class="notify-menu" role="group" aria-label="Notifications" hidden>
+                            <label class="notify-option">
+                                <input id="notifyDesktop" type="checkbox">
+                                <span>Desktop notifications</span>
+                            </label>
+                            <label class="notify-option">
+                                <input id="notifySound" type="checkbox">
+                                <span>Sound</span>
+                            </label>
+                            <p id="notifyHint" class="notify-hint" hidden></p>
+                        </div>
+                    </div>
+                    <div class="connection-pill" data-status="connecting">
+                        <span class="status-dot" aria-hidden="true"></span>
+                        <span id="connectionStatus">Connecting</span>
+                    </div>
                 </div>
             </header>
 

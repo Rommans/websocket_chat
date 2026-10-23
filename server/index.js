@@ -23,6 +23,14 @@ const PAYLOAD_MAX_BYTES = 15 * 1024 * 1024;
 const FILE_MIME_MAX_LENGTH = 100;
 const ROOM_MESSAGES_LIMIT = 500;
 const HEARTBEAT_INTERVAL = 30000;
+// How long a disconnected user stays "online" so a reconnect does not post "left"/"joined". A tab that closes
+// cleanly (closed, reloaded) only needs to cover a reload. A dropped connection gets longer: a background tab
+// in Chrome fires its reconnect timer only once a minute, after the heartbeat has reaped the old socket.
+const CLEAN_LEAVE_GRACE_PERIOD = 5000;
+const DROPPED_LEAVE_GRACE_PERIOD = 90000;
+// 1005 is what the server sees when the browser calls close() without a code.
+const CLEAN_CLOSE_CODES = new Set([1000, 1001, 1005]);
+const SESSION_KEY_PATTERN = /^[A-Za-z0-9-]{16,64}$/;
 const REPLY_PREVIEW_MAX_LENGTH = 90;
 const ROOM_MAX_LENGTH = 32;
 const USERNAME_MAX_LENGTH = 24;
@@ -138,15 +146,26 @@ const normalizeRoomId = value => {
     return room || DEFAULT_ROOM;
 };
 
+const normalizeSessionKey = value => typeof value === 'string' && SESSION_KEY_PATTERN.test(value) ? value : null;
+
+// sessions: secret per-tab key -> { user, sockets, leaveTimer }. Lets one person keep their identity across
+// reconnects and overlapping connections (a new socket can join before the server notices the old one is dead).
 const getRoom = roomId => {
     if (!rooms.has(roomId)) {
         rooms.set(roomId, {
             clients: new Map(),
-            messages: new Map()
+            messages: new Map(),
+            sessions: new Map()
         });
     }
 
     return rooms.get(roomId);
+};
+
+const deleteRoomIfEmpty = (roomId, room) => {
+    if (!room.clients.size && !room.sessions.size && rooms.get(roomId) === room) {
+        rooms.delete(roomId);
+    }
 };
 
 const getClientRoom = ws => ws.roomId ? rooms.get(ws.roomId) : null;
@@ -183,10 +202,18 @@ const rememberMessage = (room, message) => {
     }
 };
 
-const getOnlineUsers = room => Array.from(room.clients.values()).map(client => ({
-    id: client.id,
-    username: client.username
-}));
+// One entry per person: a user with two sockets, or one waiting out the leave grace period, is listed once.
+const getOnlineUsers = room => {
+    const users = new Map();
+
+    room.sessions.forEach(session => users.set(session.user.id, session.user));
+    room.clients.forEach(user => users.set(user.id, user));
+
+    return Array.from(users.values(), user => ({
+        id: user.id,
+        username: user.username
+    }));
+};
 
 const send = (ws, payload) => {
     if (ws.readyState === WebSocket.OPEN) {
@@ -203,69 +230,108 @@ const broadcast = (room, payload, exceptWs) => {
 };
 
 const broadcastPresence = (roomId, room) => {
+    const users = getOnlineUsers(room);
+
     broadcast(room, {
         type: 'presence',
         room: roomId,
-        online: room.clients.size,
-        users: getOnlineUsers(room)
+        online: users.length,
+        users
     });
 };
 
-const leaveRoom = ws => {
+const announceLeave = (roomId, room, user) => {
+    broadcast(room, {
+        type: 'system',
+        message: `${user.username} left`,
+        date: new Date().toISOString()
+    });
+    broadcastPresence(roomId, room);
+    deleteRoomIfEmpty(roomId, room);
+};
+
+const leaveRoom = (ws, gracePeriod = CLEAN_LEAVE_GRACE_PERIOD) => {
     const room = getClientRoom(ws);
     const roomId = ws.roomId;
+    const sessionKey = ws.sessionKey;
 
     if (!room || !roomId) {
         return;
     }
 
     const user = room.clients.get(ws);
+    const session = sessionKey ? room.sessions.get(sessionKey) : null;
     room.clients.delete(ws);
     ws.roomId = null;
 
-    if (user) {
-        broadcast(room, {
-            type: 'system',
-            message: `${user.username} left`,
-            date: new Date().toISOString()
-        });
+    if (!session) {
+        if (user) {
+            announceLeave(roomId, room, user);
+        } else {
+            deleteRoomIfEmpty(roomId, room);
+        }
+
+        return;
     }
 
-    broadcastPresence(roomId, room);
+    session.sockets.delete(ws);
 
-    if (!room.clients.size) {
-        rooms.delete(roomId);
+    // Another connection of the same tab is still here (e.g. the old socket of a reconnect was just reaped).
+    if (session.sockets.size) {
+        return;
     }
+
+    session.leaveTimer = setTimeout(() => {
+        room.sessions.delete(sessionKey);
+        announceLeave(roomId, room, session.user);
+    }, gracePeriod);
 };
 
 const handleJoin = (ws, payload) => {
     const username = normalizeUsername(payload.username) || 'Anonymous';
     const roomId = normalizeRoomId(payload.room);
-    const room = getRoom(roomId);
-    const existing = room.clients.get(ws);
-    const user = existing || { id: createId(), username };
+    const sessionKey = normalizeSessionKey(payload.session);
 
     if (ws.roomId && ws.roomId !== roomId) {
         leaveRoom(ws);
     }
 
+    const room = getRoom(roomId);
+    const session = sessionKey ? room.sessions.get(sessionKey) : null;
+    const isReturning = Boolean(session) || room.clients.has(ws);
+    const user = session?.user || room.clients.get(ws) || { id: createId(), username };
+
     user.username = username;
     ws.roomId = roomId;
+    ws.sessionKey = sessionKey;
     room.clients.set(ws, user);
+
+    if (sessionKey) {
+        const activeSession = session || { user, sockets: new Set(), leaveTimer: null };
+
+        clearTimeout(activeSession.leaveTimer);
+        activeSession.leaveTimer = null;
+        activeSession.sockets.add(ws);
+        room.sessions.set(sessionKey, activeSession);
+    }
+
+    const users = getOnlineUsers(room);
 
     send(ws, {
         type: 'ready',
         user,
         room: roomId,
-        online: room.clients.size,
-        users: getOnlineUsers(room)
+        online: users.length,
+        users
     });
 
-    broadcast(room, {
-        type: 'system',
-        message: `${username} joined #${roomId}`,
-        date: new Date().toISOString()
-    }, ws);
+    if (!isReturning) {
+        broadcast(room, {
+            type: 'system',
+            message: `${username} joined #${roomId}`,
+            date: new Date().toISOString()
+        }, ws);
+    }
 
     broadcastPresence(roomId, room);
 };
@@ -482,8 +548,8 @@ wss.on('connection', ws => {
         }
     });
 
-    ws.on('close', () => {
-        leaveRoom(ws);
+    ws.on('close', code => {
+        leaveRoom(ws, CLEAN_CLOSE_CODES.has(code) ? CLEAN_LEAVE_GRACE_PERIOD : DROPPED_LEAVE_GRACE_PERIOD);
     });
 });
 

@@ -11,6 +11,12 @@ const TYPING_IDLE_DELAY = 1100;
 const RECONNECT_DELAY = 2500;
 const LONG_PRESS_DELAY = 520;
 const DEFAULT_ROOM = 'general';
+const BASE_TITLE = document.title;
+const NOTIFY_SETTINGS_KEY = 'ws-chat:notifications';
+const SESSION_STORAGE_KEY = 'ws-chat:session';
+const NOTIFICATION_PREVIEW_LENGTH = 120;
+const NOTIFY_SOUND_COOLDOWN = 1500;
+const NOTIFY_SOUND = { tones: [880, 1320], spacing: 0.12, length: 0.18, volume: 0.08 };
 const MOBILE_LAYOUT_QUERY = window.matchMedia('(max-width: 760px), (max-height: 500px) and (pointer: coarse)');
 const REACTIONS = [
     { id: 'like', label: 'Like', icon: '👍' },
@@ -111,6 +117,11 @@ const elements = {
     message: document.querySelector('#message'),
     nameForm: document.querySelector('#nameForm'),
     nameModal: document.querySelector('#nameModal'),
+    notifyDesktop: document.querySelector('#notifyDesktop'),
+    notifyHint: document.querySelector('#notifyHint'),
+    notifyMenu: document.querySelector('#notifyMenu'),
+    notifySound: document.querySelector('#notifySound'),
+    notifyToggle: document.querySelector('#notifyToggle'),
     onlineCount: document.querySelector('.online-count'),
     cancelReply: document.querySelector('#cancelReply'),
     replyAuthor: document.querySelector('#replyAuthor'),
@@ -126,9 +137,13 @@ const elements = {
 };
 
 const state = {
+    audioContext: null,
     chatHeight: 0,
     connection: null,
     isTyping: false,
+    lastNotification: null,
+    lastSoundAt: 0,
+    notify: { desktop: false, sound: false },
     reconnectTimer: null,
     typingTimer: null,
     typingTimers: new Map(),
@@ -136,8 +151,10 @@ const state = {
     messages: new Map(),
     replyTo: null,
     room: DEFAULT_ROOM,
+    sessionKey: '',
     stickToBottom: true,
     touchActionTimer: null,
+    unreadCount: 0,
     user: null,
     username: ''
 };
@@ -674,6 +691,190 @@ const syncViewport = () => {
     root.classList.toggle('is-short-viewport', height < SHORT_VIEWPORT_HEIGHT);
 };
 
+const readStorage = key => {
+    try {
+        return window.localStorage.getItem(key);
+    } catch (error) {
+        return null;
+    }
+};
+
+const writeStorage = (key, value) => {
+    try {
+        window.localStorage.setItem(key, value);
+    } catch (error) {
+        // Storage can be blocked (private mode); the setting then lasts for this page only.
+    }
+};
+
+// A per-tab secret that lets the server recognise this tab after a reconnect. It is never shown to others.
+const getSessionKey = () => {
+    let key = '';
+
+    try {
+        key = window.sessionStorage.getItem(SESSION_STORAGE_KEY) || '';
+    } catch (error) {
+        key = '';
+    }
+
+    if (!key) {
+        const bytes = window.crypto.getRandomValues(new Uint8Array(16));
+        key = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+
+        try {
+            window.sessionStorage.setItem(SESSION_STORAGE_KEY, key);
+        } catch (error) {
+            // Without sessionStorage the key still covers reconnects until the page reloads.
+        }
+    }
+
+    return key;
+};
+
+const isDesktopNotifySupported = () => 'Notification' in window;
+
+const canShowDesktopNotifications = () => state.notify.desktop
+    && isDesktopNotifySupported()
+    && Notification.permission === 'granted';
+
+const getNotifyHint = () => {
+    if (!isDesktopNotifySupported()) {
+        return 'This browser does not support desktop notifications.';
+    }
+
+    if (Notification.permission === 'denied') {
+        return 'Notifications are blocked for this site. Allow them in the browser site settings.';
+    }
+
+    return '';
+};
+
+const renderNotifyControls = () => {
+    const desktopOn = canShowDesktopNotifications();
+    const hint = getNotifyHint();
+
+    elements.notifyDesktop.checked = desktopOn;
+    elements.notifyDesktop.disabled = Boolean(hint);
+    elements.notifySound.checked = state.notify.sound;
+    elements.notifyToggle.classList.toggle('is-active', desktopOn || state.notify.sound);
+    elements.notifyHint.textContent = hint;
+    elements.notifyHint.hidden = !hint;
+};
+
+const loadNotifySettings = () => {
+    try {
+        const saved = JSON.parse(readStorage(NOTIFY_SETTINGS_KEY)) || {};
+        state.notify = { desktop: Boolean(saved.desktop), sound: Boolean(saved.sound) };
+    } catch (error) {
+        state.notify = { desktop: false, sound: false };
+    }
+};
+
+const saveNotifySettings = () => {
+    writeStorage(NOTIFY_SETTINGS_KEY, JSON.stringify(state.notify));
+};
+
+const setNotifyMenuOpen = open => {
+    elements.notifyMenu.hidden = !open;
+    elements.notifyToggle.setAttribute('aria-expanded', String(open));
+};
+
+// Browsers only let audio start after a user gesture, so this runs from clicks (join, the Sound toggle).
+const unlockAudio = () => {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+
+    if (!AudioContextClass) {
+        return Promise.resolve();
+    }
+
+    state.audioContext = state.audioContext || new AudioContextClass();
+
+    return state.audioContext.resume().catch(() => {});
+};
+
+const playNotifySound = () => {
+    const context = state.audioContext;
+
+    if (!context || context.state !== 'running') {
+        return;
+    }
+
+    const now = context.currentTime;
+
+    NOTIFY_SOUND.tones.forEach((frequency, index) => {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        const start = now + index * NOTIFY_SOUND.spacing;
+
+        oscillator.type = 'sine';
+        oscillator.frequency.value = frequency;
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(NOTIFY_SOUND.volume, start + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + NOTIFY_SOUND.length);
+        oscillator.connect(gain).connect(context.destination);
+        oscillator.start(start);
+        oscillator.stop(start + NOTIFY_SOUND.length);
+    });
+};
+
+const isPageInactive = () => document.hidden || !document.hasFocus();
+
+const renderTitle = () => {
+    document.title = state.unreadCount ? `(${state.unreadCount}) ${BASE_TITLE}` : BASE_TITLE;
+};
+
+const clearUnread = () => {
+    if (isPageInactive()) {
+        return;
+    }
+
+    state.unreadCount = 0;
+    renderTitle();
+    state.lastNotification?.close();
+    state.lastNotification = null;
+};
+
+const showDesktopNotification = (username, text) => {
+    const body = text.replace(/\s+/g, ' ');
+
+    try {
+        const notification = new Notification(`${username} · #${state.room}`, {
+            body: body.length > NOTIFICATION_PREVIEW_LENGTH ? `${body.slice(0, NOTIFICATION_PREVIEW_LENGTH)}…` : body,
+            icon: 'favicon.svg',
+            // One notification per room that updates instead of piling up.
+            tag: `ws-chat-${state.room}`,
+            renotify: true,
+            silent: state.notify.sound
+        });
+
+        notification.onclick = () => {
+            window.focus();
+            notification.close();
+        };
+        state.lastNotification = notification;
+    } catch (error) {
+        // Mobile Chrome only allows notifications from a service worker; the unread counter still works.
+    }
+};
+
+const notifyIncoming = (user, text) => {
+    if (!isPageInactive()) {
+        return;
+    }
+
+    state.unreadCount += 1;
+    renderTitle();
+
+    if (state.notify.sound && Date.now() - state.lastSoundAt > NOTIFY_SOUND_COOLDOWN) {
+        state.lastSoundAt = Date.now();
+        playNotifySound();
+    }
+
+    if (canShowDesktopNotifications()) {
+        showDesktopNotification(user.username, text);
+    }
+};
+
 const setupMessageCollapse = textElement => {
     requestAnimationFrame(() => {
         if (textElement.scrollHeight <= MESSAGE_COLLAPSED_HEIGHT) {
@@ -844,6 +1045,21 @@ const appendSystemMessage = (message, date) => {
 
     row.append(text, time);
     appendToChat(row);
+
+    return row;
+};
+
+// A background tab can reconnect every minute; refresh the last notice instead of stacking new ones.
+const showReconnectedNotice = () => {
+    const last = elements.chat.lastElementChild;
+
+    if (last?.classList.contains('reconnect-notice')) {
+        last.querySelector('small').textContent = formatTime();
+        return;
+    }
+
+    appendSystemMessage('Reconnected. Messages sent while you were offline are not shown.')
+        .classList.add('reconnect-notice');
 };
 
 const appendErrorMessage = message => {
@@ -922,7 +1138,7 @@ const handleServerMessage = event => {
         setComposerReady();
 
         if (isRejoin) {
-            appendSystemMessage('Reconnected. Messages sent while you were offline are not shown.');
+            showReconnectedNotice();
         }
 
         return;
@@ -944,6 +1160,11 @@ const handleServerMessage = event => {
             own: payload.user?.id === state.user?.id
         });
         clearTypingUser(payload.user?.id);
+
+        if (payload.user?.id !== state.user?.id) {
+            notifyIncoming(payload.user, payload.message);
+        }
+
         return;
     }
 
@@ -958,6 +1179,11 @@ const handleServerMessage = event => {
             own: payload.user?.id === state.user?.id
         });
         clearTypingUser(payload.user?.id);
+
+        if (payload.user?.id !== state.user?.id) {
+            notifyIncoming(payload.user, `📎 ${payload.file?.name || 'File'}`);
+        }
+
         return;
     }
 
@@ -1043,7 +1269,8 @@ const connect = () => {
             sendPayload({
                 type: 'join',
                 username: state.username,
-                room: state.room
+                room: state.room,
+                session: state.sessionKey
             });
         }
     };
@@ -1062,6 +1289,14 @@ const connect = () => {
         setComposerUnavailable('Reconnecting...');
         state.reconnectTimer = window.setTimeout(connect, RECONNECT_DELAY);
     };
+};
+
+// Background tabs delay the reconnect timer by up to a minute; don't wait for it once the user is back.
+// Only a fully closed socket is replaced: a closing one will schedule its own reconnect.
+const reconnectNow = () => {
+    if (state.username && state.connection?.readyState === WebSocket.CLOSED) {
+        connect();
+    }
 };
 
 const stopTyping = () => {
@@ -1109,8 +1344,59 @@ elements.nameForm.addEventListener('submit', event => {
     state.room = getRoomId();
     elements.roomName.textContent = `#${state.room}`;
     elements.nameModal.hidden = true;
+
+    if (state.notify.sound) {
+        unlockAudio();
+    }
+
     connect();
 });
+
+elements.notifyToggle.addEventListener('click', () => {
+    setNotifyMenuOpen(elements.notifyMenu.hidden);
+});
+
+elements.notifyDesktop.addEventListener('change', async () => {
+    if (elements.notifyDesktop.checked && Notification.permission !== 'granted') {
+        await Notification.requestPermission();
+    }
+
+    state.notify.desktop = elements.notifyDesktop.checked && Notification.permission === 'granted';
+    saveNotifySettings();
+    renderNotifyControls();
+});
+
+elements.notifySound.addEventListener('change', () => {
+    state.notify.sound = elements.notifySound.checked;
+    saveNotifySettings();
+    renderNotifyControls();
+
+    if (state.notify.sound) {
+        unlockAudio().then(playNotifySound);
+    }
+});
+
+document.addEventListener('pointerdown', event => {
+    if (!event.target.closest('.notify-control')) {
+        setNotifyMenuOpen(false);
+    }
+});
+
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+        setNotifyMenuOpen(false);
+    }
+});
+
+document.addEventListener('visibilitychange', () => {
+    clearUnread();
+
+    if (!document.hidden) {
+        reconnectNow();
+    }
+});
+window.addEventListener('focus', clearUnread);
+window.addEventListener('online', reconnectNow);
 
 elements.sidebarToggle.addEventListener('click', () => {
     setSidebarCollapsed(!elements.chatShell.classList.contains('sidebar-collapsed'));
@@ -1234,6 +1520,9 @@ elements.message.addEventListener('keydown', event => {
 
 syncViewport();
 setSidebarCollapsed(MOBILE_LAYOUT_QUERY.matches);
+state.sessionKey = getSessionKey();
+loadNotifySettings();
+renderNotifyControls();
 elements.message.enterKeyHint = isTouchMode() ? 'enter' : 'send';
 elements.username.focus();
 state.room = getRoomId();
