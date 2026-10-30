@@ -1,6 +1,8 @@
 const REMOTE_WS_URL = 'wss://websocket-chat-s2s0.onrender.com';
 const LOCAL_WS_URL = 'ws://localhost:8080';
 const FILE_MAX_BYTES = 10 * 1024 * 1024;
+// Same limit as the server, which otherwise only answers with a generic rejection.
+const FILE_NAME_MAX_LENGTH = 120;
 // Keep in sync with the server's WebSocket maxPayload.
 const PAYLOAD_MAX_BYTES = 15 * 1024 * 1024;
 const IME_PROCESS_KEY_CODE = 229;
@@ -21,6 +23,8 @@ const VIEWER_MAX_SCALE = 5;
 const VIEWER_CLICK_SCALE = 2.5;
 const VIEWER_WHEEL_SPEED = 0.0015;
 const VIEWER_DRAG_THRESHOLD = 4;
+const UPLOAD_PROGRESS_INTERVAL = 200;
+const UPLOAD_CONFIRM_TIMEOUT = 60000;
 const MOBILE_LAYOUT_QUERY = window.matchMedia('(max-width: 760px), (max-height: 500px) and (pointer: coarse)');
 const REACTIONS = [
     { id: 'like', label: 'Like', icon: '👍' },
@@ -151,6 +155,8 @@ const elements = {
 
 const state = {
     audioContext: null,
+    // Bytes passed to send() on the current socket; minus bufferedAmount it gives how much has gone out.
+    bytesQueued: 0,
     chatHeight: 0,
     connection: null,
     isTyping: false,
@@ -168,6 +174,8 @@ const state = {
     stickToBottom: true,
     touchActionTimer: null,
     unreadCount: 0,
+    uploads: new Map(),
+    uploadTimer: null,
     user: null,
     username: '',
     viewer: { current: null, scale: 1, x: 0, y: 0, pointer: null, returnFocus: null }
@@ -589,15 +597,17 @@ const sendPayload = payload => {
     }
 
     const data = JSON.stringify(payload);
+    // Exact UTF-8 size: the server drops the connection on oversized frames, and upload progress is measured
+    // against the bytes queued on this socket.
+    const bytes = new Blob([data]).size;
 
-    // The server drops the connection on oversized frames. UTF-8 takes at most 3 bytes per UTF-16 unit,
-    // so only long payloads need the exact byte count.
-    if (data.length * 3 > PAYLOAD_MAX_BYTES && new Blob([data]).size > PAYLOAD_MAX_BYTES) {
+    if (bytes > PAYLOAD_MAX_BYTES) {
         appendErrorMessage('This message is too large to send.');
         return false;
     }
 
     state.connection.send(data);
+    state.bytesQueued += bytes;
     return true;
 };
 
@@ -1271,6 +1281,10 @@ const handleServerMessage = event => {
     }
 
     if (payload.type === 'file') {
+        if (payload.user?.id === state.user?.id && payload.file) {
+            completeUpload(payload.file);
+        }
+
         appendFileMessage({
             id: payload.id,
             user: payload.user,
@@ -1295,7 +1309,16 @@ const handleServerMessage = event => {
     }
 
     if (payload.type === 'error') {
-        appendErrorMessage(payload.message);
+        // The server only reports errors for rejected files, so attach it to the upload waiting for an answer.
+        const upload = Array.from(state.uploads.values())
+            .find(item => item.stage === 'uploading' || item.stage === 'processing');
+
+        if (upload) {
+            failUpload(upload, payload.message);
+        } else {
+            appendErrorMessage(payload.message);
+        }
+
         return;
     }
 
@@ -1317,6 +1340,158 @@ const readFileAsDataUrl = file => new Promise((resolve, reject) => {
     reader.readAsDataURL(file);
 });
 
+// An upload shows a placeholder bubble that walks through reading -> uploading -> processing (waiting for the
+// server to broadcast it back) and is replaced by the real message, or ends as failed with Retry/Remove.
+const UPLOAD_STATUS = {
+    reading: () => 'Preparing…',
+    processing: () => 'Delivering to the room…'
+};
+
+const renderUpload = upload => {
+    const { elements: parts, stage } = upload;
+    const failed = stage === 'failed';
+    const uploading = stage === 'uploading';
+
+    parts.bubble.classList.toggle('is-failed', failed);
+    parts.progress.hidden = failed;
+    parts.progress.classList.toggle('is-indeterminate', !uploading);
+    parts.bar.style.width = uploading ? `${Math.round(upload.progress * 100)}%` : '';
+    parts.actions.hidden = !failed;
+
+    if (uploading) {
+        parts.progress.setAttribute('aria-valuenow', String(Math.round(upload.progress * 100)));
+    } else {
+        parts.progress.removeAttribute('aria-valuenow');
+    }
+
+    if (failed) {
+        parts.status.textContent = upload.error;
+    } else if (uploading) {
+        const percent = Math.round(upload.progress * 100);
+        const sent = formatFileSize(Math.round(upload.file.size * upload.progress));
+        parts.status.textContent = `Uploading… ${percent}% · ${sent} of ${formatFileSize(upload.file.size)}`;
+    } else {
+        parts.status.textContent = UPLOAD_STATUS[stage]();
+    }
+};
+
+const removeUpload = upload => {
+    window.clearTimeout(upload.confirmTimer);
+    upload.elements.row.remove();
+    state.uploads.delete(upload.id);
+};
+
+const failUpload = (upload, error) => {
+    window.clearTimeout(upload.confirmTimer);
+    upload.stage = 'failed';
+    upload.error = error;
+    renderUpload(upload);
+};
+
+const createUpload = file => {
+    hideEmptyState();
+
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const upload = { id, file, stage: 'reading', progress: 0, error: '', confirmTimer: null };
+    const row = createElement('article', 'message-row own upload-row');
+    const bubble = createElement('div', 'message-bubble file-bubble upload-bubble');
+    const meta = createElement('div', 'message-meta');
+    const card = createElement('div', 'file-card');
+    const info = createElement('div', 'file-info');
+    const status = createElement('span', 'upload-status');
+    const progress = createElement('div', 'upload-progress');
+    const bar = createElement('span');
+    const actions = createElement('div', 'upload-actions');
+    const retry = createElement('button', 'upload-retry', 'Retry');
+    const remove = createElement('button', 'upload-remove', 'Remove');
+
+    retry.type = 'button';
+    remove.type = 'button';
+    retry.addEventListener('click', () => {
+        removeUpload(upload);
+        sendFile(file);
+    });
+    remove.addEventListener('click', () => removeUpload(upload));
+
+    progress.setAttribute('role', 'progressbar');
+    progress.setAttribute('aria-label', `Uploading ${file.name}`);
+    meta.append(createElement('strong', '', 'You'), createElement('span', '', formatTime()));
+    info.append(createElement('strong', '', file.name), status);
+    progress.append(bar);
+    actions.append(retry, remove);
+    card.append(info, progress, actions);
+    bubble.append(meta, card);
+    row.append(bubble);
+
+    upload.elements = { row, bubble, card, status, progress, bar, actions };
+    state.uploads.set(upload.id, upload);
+    renderUpload(upload);
+    appendToChat(row, { stick: true });
+
+    return upload;
+};
+
+const showUploadThumbnail = (upload, dataUrl) => {
+    const preview = document.createElement('img');
+
+    preview.className = 'file-preview';
+    preview.src = dataUrl;
+    preview.alt = '';
+    keepBottomOnLoad(preview);
+    upload.elements.card.prepend(preview);
+};
+
+const updateUploadProgress = () => {
+    const socket = state.connection;
+    const sentTotal = socket ? state.bytesQueued - socket.bufferedAmount : 0;
+    let uploading = false;
+
+    state.uploads.forEach(upload => {
+        if (upload.stage !== 'uploading' || upload.socket !== socket) {
+            return;
+        }
+
+        upload.progress = Math.min(1, Math.max(0, (sentTotal - upload.start) / (upload.end - upload.start)));
+
+        if (upload.progress < 1) {
+            uploading = true;
+        } else {
+            upload.stage = 'processing';
+            upload.confirmTimer = window.setTimeout(() => {
+                failUpload(upload, 'The server did not confirm this file. Try again.');
+            }, UPLOAD_CONFIRM_TIMEOUT);
+        }
+
+        renderUpload(upload);
+    });
+
+    if (!uploading) {
+        window.clearInterval(state.uploadTimer);
+        state.uploadTimer = null;
+    }
+};
+
+// The server echoes our own file back; match it to the oldest placeholder with the same file.
+const completeUpload = file => {
+    const uploads = Array.from(state.uploads.values());
+    const sameName = upload => upload.file.name.trim() === file.name;
+    const upload = uploads.find(item => sameName(item) && item.file.size === file.size) || uploads.find(sameName);
+
+    if (upload) {
+        removeUpload(upload);
+    }
+};
+
+const failPendingUploads = (error, socket) => {
+    state.uploads.forEach(upload => {
+        const pending = upload.stage === 'uploading' || upload.stage === 'processing';
+
+        if (pending && (!socket || upload.socket === socket)) {
+            failUpload(upload, error);
+        }
+    });
+};
+
 const sendFile = async file => {
     if (!file) {
         return;
@@ -1332,26 +1507,52 @@ const sendFile = async file => {
         return;
     }
 
-    try {
-        const dataUrl = await readFileAsDataUrl(file);
-
-        const sent = sendPayload({
-            type: 'file',
-            replyTo: state.replyTo?.id,
-            file: {
-                name: file.name,
-                size: file.size,
-                mime: file.type,
-                dataUrl
-            }
-        });
-
-        if (sent) {
-            clearReplyTo();
-        }
-    } catch (error) {
-        appendErrorMessage('Could not read this file.');
+    if (file.name.length > FILE_NAME_MAX_LENGTH) {
+        appendErrorMessage(`File name should be ${FILE_NAME_MAX_LENGTH} characters or shorter.`);
+        return;
     }
+
+    const replyTo = state.replyTo?.id;
+    const upload = createUpload(file);
+    let dataUrl;
+
+    try {
+        dataUrl = await readFileAsDataUrl(file);
+    } catch (error) {
+        failUpload(upload, 'Could not read this file.');
+        return;
+    }
+
+    if (file.type.startsWith('image/')) {
+        showUploadThumbnail(upload, dataUrl);
+    }
+
+    const start = state.bytesQueued;
+    const sent = sendPayload({
+        type: 'file',
+        replyTo,
+        file: {
+            name: file.name,
+            size: file.size,
+            mime: file.type,
+            dataUrl
+        }
+    });
+
+    if (!sent) {
+        failUpload(upload, 'You are offline. Try again when the chat reconnects.');
+        return;
+    }
+
+    clearReplyTo();
+    Object.assign(upload, { stage: 'uploading', socket: state.connection, start, end: state.bytesQueued });
+    renderUpload(upload);
+
+    if (!state.uploadTimer) {
+        state.uploadTimer = window.setInterval(updateUploadProgress, UPLOAD_PROGRESS_INTERVAL);
+    }
+
+    updateUploadProgress();
 };
 
 const connect = () => {
@@ -1361,6 +1562,7 @@ const connect = () => {
     setComposerUnavailable('Waiting for server...');
 
     state.connection = new WebSocket(getSocketUrl());
+    state.bytesQueued = 0;
 
     state.connection.onopen = () => {
         setConnectionStatus('online', 'Online');
@@ -1389,6 +1591,7 @@ const connect = () => {
         setConnectionStatus('offline', 'Reconnecting');
         setConnectionNotice('Disconnected. Reconnecting automatically...');
         setComposerUnavailable('Reconnecting...');
+        failPendingUploads('The connection dropped, so the file may not have been sent. Try again.', state.connection);
         state.reconnectTimer = window.setTimeout(connect, RECONNECT_DELAY);
     };
 };
