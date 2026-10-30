@@ -479,8 +479,8 @@ h1 {
     display: flex;
     align-items: flex-end;
     gap: 10px;
-    padding-top: 12px;
-    padding-bottom: 16px;
+    padding-top: 8px;
+    padding-bottom: 10px;
     animation: rise-in 220ms ease both;
     z-index: 1;
 }
