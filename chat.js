@@ -1698,6 +1698,11 @@ elements.message.addEventListener('input', () => {
 });
 
 elements.message.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && state.replyTo) {
+        clearReplyTo();
+        return;
+    }
+
     // Skip Enter that confirms an IME candidate (Safari reports it only via keyCode 229)
     // and on touch keyboards, where Enter inserts a new line and the Send button sends.
     if (event.key !== 'Enter' || event.shiftKey || event.isComposing || event.keyCode === IME_PROCESS_KEY_CODE) {
